@@ -19,6 +19,7 @@
     "destroy": "alchemy destroy"
   },
   "dependencies": {
+    "@3d-dice/dice-box": "^1.1.4",
     "@effect/atom-react": "4.0.0-rc.117",
     "@effect/sql-pg": "^4.0.0-rc.117",
     "@tailwindcss/vite": "^4.1.18",
