@@ -1,5 +1,4 @@
 allowBuilds:
-  '@3d-dice/dice-box': true
   esbuild: true
   lightningcss: true
   msgpackr-extract: true
