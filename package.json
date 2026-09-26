@@ -1,0 +1,61 @@
+{
+  "name": "ten-candles-web",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "dev:backend": "pushd pocketbase && ./pocketbase.exe serve --http=127.0.0.1:8090",
+    "pb:migrate": "pushd pocketbase && ./pocketbase.exe migrate up",
+    "generate-routes": "tsr generate",
+    "build": "vite build",
+    "preview": "vite preview",
+    "alchemy": "alchemy",
+    "deploy": "alchemy deploy",
+    "deploy:dry": "alchemy deploy --dry-run",
+    "dev:cloud": "alchemy dev",
+    "destroy": "alchemy destroy"
+  },
+  "dependencies": {
+    "@effect/atom-react": "4.0.0-rc.117",
+    "@effect/sql-pg": "^4.0.0-rc.117",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-devtools": "latest",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-start": "latest",
+    "@trystero-p2p/torrent": "^0.25.4",
+    "alchemy": "2.0.0-beta.79",
+    "drizzle-orm": "^1.0.0-rc.5-5935859",
+    "effect": "^4.0.0-rc.117",
+    "nanoid": "^6.0.1",
+    "pg": "^8.23.0",
+    "pocketbase": "^0.28.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260925.2",
+    "@tailwindcss/typography": "^0.5.16",
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/router-cli": "^1.132.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "drizzle-kit": "^1.0.0-rc.5-5935859",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss"
+    ]
+  }
+}
