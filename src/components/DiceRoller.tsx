@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { DiceTray } from '../lib/dice-tray'
+import { useCallback, useState } from 'react'
+import DdbDiceOverlay, { type DdbOutcome, type DdbRollResult } from './DdbDiceOverlay'
+import type { TraySpec } from '../lib/dice-tray'
 import { countOnes, isSuccess, rollD6 } from '../lib/ten-candles'
+
+function outcomeOf(pool: number[], dark: number[], hope: number[], gmPool: number): DdbOutcome {
+  const success = isSuccess(pool, hope)
+  if (!success) return 'failure'
+  const gmSix = dark.filter((x) => x === 6).length
+  const pSix = pool.filter((x) => x === 6).length + hope.filter((x) => x >= 5).length
+  if (gmSix >= pSix && gmPool > 0) return 'success-price'
+  return 'success'
+}
 
 function verdict(pool: number[], dark: number[], hope: number[], gmPool: number): string {
   const success = isSuccess(pool, hope)
@@ -16,6 +26,25 @@ function verdict(pool: number[], dark: number[], hope: number[], gmPool: number)
   return `Success. The light holds. The scene continues, and ${ones === 1 ? 'one die' : `${ones} dice`} showing one ${ones === 1 ? 'is' : 'are'} set aside.`
 }
 
+function buildResult(pool: number[], dark: number[], hope: number[], gmPool: number): DdbRollResult {
+  return {
+    pool,
+    dark,
+    hope,
+    verdict: verdict(pool, dark, hope, gmPool),
+    outcome: outcomeOf(pool, dark, hope, gmPool),
+    ones: countOnes(pool),
+  }
+}
+
+function specsOf(r: DdbRollResult): TraySpec[] {
+  return [
+    ...r.pool.map((value) => ({ scheme: 'light' as const, value })),
+    ...r.dark.map((value) => ({ scheme: 'dark' as const, value })),
+    ...r.hope.map((value) => ({ scheme: 'hope' as const, value })),
+  ]
+}
+
 export default function DiceRoller({
   pool,
   gmPool,
@@ -29,111 +58,114 @@ export default function DiceRoller({
   /** Unseated visitors may watch but not touch. */
   canRoll?: boolean
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const trayRef = useRef<DiceTray | null>(null)
-  const [engine, setEngine] = useState<'loading' | 'tray' | 'flat'>('loading')
-  const [rolling, setRolling] = useState(false)
   const [hasHope, setHasHope] = useState(true)
   const [sound, setSound] = useState(true)
-  const [poolVals, setPoolVals] = useState<number[]>([])
-  const [hopeVals, setHopeVals] = useState<number[]>([])
-  const [rolled, setRolled] = useState(false)
+  const [rolling, setRolling] = useState(false)
+
+  // Hasil acak sudah ditentukan SEBELUM animasi; banner overlay baru
+  // dibuka SETELAH animasi selesai (via onSettled) — ala D&D Beyond.
+  const [overlayOpen, setOverlayOpen] = useState(false)
+  const [rollKey, setRollKey] = useState(0)
+  const [specs, setSpecs] = useState<TraySpec[]>([])
+  const [pending, setPending] = useState<DdbRollResult | null>(null)
+  const [revealed, setRevealed] = useState(false)
+
+  // Salinan inline agar hasil tetap terbaca setelah overlay ditutup,
+  // sekaligus jadi fallback saat reduced-motion (tanpa animasi).
+  const [last, setLast] = useState<DdbRollResult | null>(null)
+  const [history, setHistory] = useState<DdbRollResult[]>([])
   const [msg, setMsg] = useState('')
+  const [rolled, setRolled] = useState(false)
+
   const reduced =
     typeof window !== 'undefined' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-  useEffect(() => {
-    if (reduced) {
-      setEngine('flat')
-      return
-    }
-    const canvas = canvasRef.current
-    if (!canvas) {
-      setEngine('flat')
-      return
-    }
-    let tray: DiceTray | null = null
-    try {
-      tray = new DiceTray(canvas)
-      trayRef.current = tray
-      setEngine('tray')
-    } catch {
-      trayRef.current = null
-      setEngine('flat')
-    }
-    const onResize = () => tray?.resize()
-    window.addEventListener('resize', onResize)
-    return () => {
-      window.removeEventListener('resize', onResize)
-      tray?.destroy()
-      trayRef.current = null
-    }
-  }, [reduced])
+  function pushHistory(r: DdbRollResult) {
+    setHistory((h) => [r, ...h].slice(0, 5))
+  }
 
-  useEffect(() => {
-    trayRef.current?.setSound(sound)
-  }, [sound])
-
-  async function roll() {
+  function roll() {
     // The keeper holds no hope die, even if the box is checked.
     const useHope = hasHope && !isGM
     const d = rollD6(Math.max(pool, 0))
     const g = rollD6(Math.max(gmPool, 0))
     const h = useHope ? rollD6(1) : []
-    setPoolVals(d)
-    setHopeVals(h)
+    const res = buildResult(d, g, h, gmPool)
     setRolled(true)
-    const tray = trayRef.current
-    if (engine !== 'tray' || !tray) {
-      setMsg(verdict(d, g, h, gmPool))
+
+    if (reduced) {
+      // Tanpa animasi: langsung umumkan hasil acaknya.
+      setLast(res)
+      setMsg(res.verdict)
+      pushHistory(res)
       return
     }
+
+    setSpecs(specsOf(res))
+    setPending(res)
+    setRevealed(false)
     setRolling(true)
+    setOverlayOpen(true)
+    setRollKey((k) => k + 1)
     setMsg('The bones are cast…')
-    try {
-      await tray.roll([
-        ...d.map((value) => ({ scheme: 'light' as const, value })),
-        ...g.map((value) => ({ scheme: 'dark' as const, value })),
-        ...h.map((value) => ({ scheme: 'hope' as const, value })),
-      ])
-    } catch {
-      // the tray faltered mid-throw; the values below still stand
-    } finally {
-      setRolling(false)
-    }
-    setMsg(verdict(d, g, h, gmPool))
   }
 
-  async function rerollOnes() {
-    if (!rolled || rolling) return
-    const ones = poolVals.filter((v) => v === 1).length
+  const handleSettled = useCallback(() => {
+    // Animasi selesai → baru kasih tahu dapat berapa.
+    setRevealed(true)
+    setRolling(false)
+    setPending((p) => {
+      if (p) {
+        setLast(p)
+        setMsg(p.verdict)
+        setHistory((h) => [p, ...h].slice(0, 5))
+      }
+      return p
+    })
+  }, [])
+
+  function rerollOnes() {
+    const base = pending && !revealed ? null : (last ?? pending)
+    // Saat overlay terbuka dan belum reveal, pakai pending sebagai basis.
+    const active = overlayOpen && pending ? pending : base
+    if (!active || rolling) return
+    const ones = active.pool.filter((v) => v === 1).length
     if (ones === 0) {
       setMsg('There is nothing showing one to reroll. Burn only when ones lie on the table.')
       return
     }
     const re = rollD6(ones)
-    const tray = engine === 'tray' ? trayRef.current : null
-    if (tray) {
-      setRolling(true)
-      try {
-        const ids = tray.idsOfSettled('light', 1).slice(0, ones)
-        await tray.retoss(ids, re)
-      } finally {
-        setRolling(false)
-      }
-    }
-    const nd = [...poolVals]
+    const nd = [...active.pool]
     let c = 0
     for (let i = 0; i < nd.length && c < re.length; i++) {
       if (nd[i] === 1) nd[i] = re[c++]
     }
-    setPoolVals(nd)
-    setMsg(
-      isSuccess(nd, hopeVals)
-        ? 'The burned trait turns the roll. Failure becomes success, and the card is gone.'
-        : 'Even burned, it fails. The card is gone — put out a candle.',
-    )
+    const burnedMsg = isSuccess(nd, active.hope)
+      ? 'The burned trait turns the roll. Failure becomes success, and the card is gone.'
+      : 'Even burned, it fails. The card is gone — put out a candle.'
+    const burned: DdbRollResult = {
+      pool: nd,
+      dark: active.dark,
+      hope: active.hope,
+      verdict: burnedMsg,
+      outcome: isSuccess(nd, active.hope) ? 'success' : 'failure',
+      ones: countOnes(nd),
+    }
+    setRolled(true)
+    if (reduced) {
+      setLast(burned)
+      setMsg(burnedMsg)
+      pushHistory(burned)
+      return
+    }
+    setSpecs(specsOf(burned))
+    setPending(burned)
+    setRevealed(false)
+    setRolling(true)
+    setOverlayOpen(true)
+    setRollKey((k) => k + 1)
+    setMsg('The burned card feeds the tray…')
   }
 
   const rollingLabel = rolling ? 'The bones are cast…' : 'Throw the bones'
@@ -150,16 +182,6 @@ export default function DiceRoller({
           ? 'You hold no hope die — yours is the other side of the tray.'
           : 'A hope die holds on five or six and is never lost.'}
       </p>
-
-      {!reduced && (
-        <div className="mt-4 overflow-hidden rounded-md border border-[var(--line)] bg-[var(--sunken)]">
-          <canvas
-            ref={canvasRef}
-            aria-hidden="true"
-            className="block h-[300px] w-full sm:h-[340px]"
-          />
-        </div>
-      )}
 
       {!isGM && canRoll && (
         <label className="mt-3 flex items-center gap-2.5 text-[0.95rem] text-[var(--text-secondary)]">
@@ -201,14 +223,20 @@ export default function DiceRoller({
         </p>
       )}
 
-      {engine === 'flat' && rolled && (
-        <div className="mt-4 flex flex-wrap gap-2" aria-label="Rolled dice">
-          {poolVals.map((d, i) => (
+      {/* Hasil terakhir tetap terlihat inline setelah overlay ditutup. */}
+      {last && !overlayOpen && (
+        <div className="mt-4 flex flex-wrap gap-2" aria-label="Last rolled dice">
+          {last.pool.map((d, i) => (
             <span key={i} className={`die nums ${d === 6 ? 'die-six' : d === 1 ? 'die-one' : ''}`}>
               {d}
             </span>
           ))}
-          {hopeVals.map((h, i) => (
+          {last.dark.map((d, i) => (
+            <span key={`d${i}`} className="die die-dark nums" title="Dark die">
+              {d}
+            </span>
+          ))}
+          {last.hope.map((h, i) => (
             <span key={`h${i}`} className="die die-hope nums" title="Hope die">
               {h}
             </span>
@@ -221,10 +249,41 @@ export default function DiceRoller({
           {msg}
         </p>
       )}
+
+      {history.length > 0 && (
+        <div className="mt-3 space-y-1.5" aria-label="Roll history">
+          {history.slice(0, 4).map((h, i) => (
+            <p key={`${i}-${h.verdict.slice(0, 12)}`} className="m-0 text-[0.85rem] text-[var(--text-muted)]">
+              <span className="nums font-semibold text-[var(--text-secondary)]">
+                {i === 0 ? 'Last' : `#${i + 1}`}
+              </span>{' '}
+              — {h.outcome === 'failure' ? 'Failure' : h.outcome === 'success-price' ? 'Success at a price' : 'Success'} · Light [{h.pool.join(', ') || '—'}]
+              {h.dark.length > 0 && <> · Dark [{h.dark.join(', ')}]</>}
+              {h.hope.length > 0 && <> · Hope [{h.hope.join(', ')}]</>}
+            </p>
+          ))}
+        </div>
+      )}
+
       <p className="mt-2 text-[0.85rem] leading-6 text-[var(--text-muted)]">
         Bone for the living, ash for the dark, ember for hope. A brink rerolls the whole pool —
         only after a failure, and only if the fiction fits.
       </p>
+
+      {!reduced && (
+        <DdbDiceOverlay
+          open={overlayOpen}
+          rollKey={rollKey}
+          specs={specs}
+          result={pending}
+          revealed={revealed}
+          rolling={rolling}
+          sound={sound}
+          onSettled={handleSettled}
+          onClose={() => setOverlayOpen(false)}
+          onReroll={() => void roll()}
+        />
+      )}
     </section>
   )
 }

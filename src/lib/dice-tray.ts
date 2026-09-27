@@ -193,20 +193,29 @@ export class DiceTray {
 
   private dieSize(count: number): number {
     const area = (this.w * this.h) / Math.max(1, count)
-    return Math.max(34, Math.min(52, Math.sqrt(area) * 0.32))
+    // Fullscreen overlay (ala D&D Beyond) punya ruang jauh lebih lega,
+    // jadi dadu boleh tampil lebih besar dan mudah dibaca.
+    const big = this.w > 700 || this.h > 500
+    const max = big ? 68 : 52
+    const min = big ? 44 : 34
+    const factor = big ? 0.36 : 0.32
+    return Math.max(min, Math.min(max, Math.sqrt(area) * factor))
   }
 
   private spawn(spec: TraySpec, size: number, i: number) {
     const r = size / 2
+    // Lemparan ala D&D Beyond: jatuh dari atas dengan sebaran horizontal
+    // dan kecepatan awal lebih kencang supaya mental-mental.
+    const wide = this.w > 700
     this.dice.push({
       ...spec,
       id: this.nextId++,
       x: r + 10 + Math.random() * Math.max(10, this.w - size - 20),
-      y: -size - i * 14,
-      vx: (Math.random() * 2 - 1) * 3.2,
-      vy: 1 + Math.random() * 2,
+      y: -size - i * 18,
+      vx: (Math.random() * 2 - 1) * (wide ? 4.6 : 3.2),
+      vy: 2 + Math.random() * 2.5,
       angle: Math.random() * Math.PI * 2,
-      va: (Math.random() * 2 - 1) * 0.3,
+      va: (Math.random() * 2 - 1) * (wide ? 0.42 : 0.3),
       size,
       face: 1 + Math.floor(Math.random() * 6),
       settled: false,
