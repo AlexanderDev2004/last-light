@@ -13,6 +13,7 @@ import {
 import { getClientId } from '../lib/lobby-store'
 import { allReady } from '../lib/lobby-store'
 import { p2pOnPeers } from '../lib/p2p'
+import LinkDiagnosis from '../components/LinkDiagnosis'
 import type { Lobby } from '../lib/ten-candles'
 
 export const Route = createFileRoute('/lobby/$lobbyId')({
@@ -133,6 +134,7 @@ function LobbyPage() {
             Listen again
           </button>
         </div>
+        {(backend === 'p2p' || backend === 'lokal') && <LinkDiagnosis />}
       </div>
     )
   }
@@ -264,9 +266,11 @@ function LobbyPage() {
             <div className="panel-sunken lg:sticky lg:top-24">
               <p className="label">The beginning</p>
               <p className="mt-2 text-[0.95rem] leading-7 text-[var(--text-secondary)]">
-                {amReady
-                  ? 'You are ready. Wait for the others, then the keeper puts out the lamps.'
-                  : 'When you are ready to face the dark, say so. The story cannot begin until everyone is ready.'}
+                {isGM
+                  ? 'You keep the dark. When everyone is ready, put out the lamps and read the first scene aloud.'
+                  : amReady
+                    ? 'You are ready. Wait for the others, then the keeper puts out the lamps.'
+                    : 'When you are ready to face the dark, say so. The story cannot begin until everyone is ready.'}
               </p>
               <div className="mt-4 flex flex-col gap-3">
                 <button

@@ -6,11 +6,14 @@ export default function TruthsJournal({
   candlesLit,
   userName,
   onAdd,
+  canWrite = true,
 }: {
   truths: TruthEntry[]
   candlesLit: number
   userName: string
   onAdd: (text: string) => string | null | Promise<string | null>
+  /** Unseated visitors may read but not speak. */
+  canWrite?: boolean
 }) {
   const [text, setText] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -48,24 +51,32 @@ export default function TruthsJournal({
         A truth may build on another, never undo one — and never weaken what hunts you.
       </p>
 
-      <div className="mt-4 flex gap-2.5">
-        <input
-          className="field"
-          aria-label={`Add a truth as ${userName}`}
-          placeholder="Water left standing carries whispers…"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit()
-          }}
-        />
-        <button className="btn btn-quiet shrink-0" onClick={submit} disabled={busy || !text.trim()}>
-          {busy ? 'Writing…' : 'Speak it'}
-        </button>
-      </div>
-      {err && (
-        <p className="inline-error mt-3" role="alert">
-          {err}
+      {canWrite ? (
+        <>
+          <div className="mt-4 flex gap-2.5">
+            <input
+              className="field"
+              aria-label={`Add a truth as ${userName}`}
+              placeholder="Water left standing carries whispers…"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
+            />
+            <button className="btn btn-quiet shrink-0" onClick={submit} disabled={busy || !text.trim()}>
+              {busy ? 'Writing…' : 'Speak it'}
+            </button>
+          </div>
+          {err && (
+            <p className="inline-error mt-3" role="alert">
+              {err}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="mt-4 text-[0.9rem] text-[var(--text-muted)]">
+          Only seated players speak truths.
         </p>
       )}
 

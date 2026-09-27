@@ -36,8 +36,22 @@ function SessionPage() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [backend, setBackend] = useState<BackendKind | 'checking'>('checking')
   const me = typeof window !== 'undefined' ? getClientId() : ''
-  const isGM = lobby ? lobby.gmId === me : true
+  // Unknown until the lobby loads — and never assumed to be the keeper.
+  const isGM = lobby ? lobby.gmId === me : false
   const myPlayer = session?.players.find((p) => p.clientId === me)
+  const isVisitor = !!lobby && !isGM && !myPlayer
+  const keeper = lobby?.players.find((p) => p.clientId === lobby?.gmId)
+  const survivors = session?.players.filter((p) => !p.isGM) ?? []
+  const linkWord =
+    backend === 'effect'
+      ? 'shared server'
+      : backend === 'pocketbase'
+        ? 'local server'
+        : backend === 'p2p'
+          ? 'direct link'
+          : backend === 'lokal'
+            ? 'this browser only'
+            : 'checking link…'
 
   useEffect(() => {
     setChecked(false)
@@ -108,44 +122,72 @@ function SessionPage() {
       style={lightsOut ? { background: '#000', minHeight: '100vh' } : undefined}
     >
       <p className="label">
-        {lobby?.name ?? 'The story'} · {isGM ? 'you keep the dark' : `you are ${myPlayer?.name ?? 'un seated'}`} ·{' '}
-        {backend === 'effect'
-          ? 'shared server'
-          : backend === 'pocketbase'
-            ? 'local server'
-            : backend === 'p2p'
-              ? 'direct link'
-              : backend === 'lokal'
-                ? 'this browser only'
-                : 'checking link…'}
+        {lobby?.name ?? 'The story'} · {linkWord}
       </p>
+
+      {isVisitor ? (
+        <div className="panel mt-4">
+          <p className="label">Unseated</p>
+          <p className="m-0 mt-1 max-w-[60ch] leading-7 text-[var(--text-secondary)]">
+            You are not seated at this table, so you may watch but not touch. Return to the
+            gathering and take the empty chair to play.
+          </p>
+          <button
+            className="btn btn-quiet mt-3"
+            onClick={() => nav({ to: '/lobby/$lobbyId', params: { lobbyId: lobbyId.toUpperCase() } })}
+          >
+            Back to the gathering
+          </button>
+        </div>
+      ) : isGM ? (
+        <div className="panel mt-4">
+          <p className="label">You keep the dark{keeper ? ` — ${keeper.name}` : ''}</p>
+          <p className="m-0 mt-1 max-w-[62ch] leading-7 text-[var(--text-secondary)]">
+            Frame the scene. Call for rolls only when something is at stake. Meet or beat their
+            sixes to price each success. Lead the truths, and put out the last candle yourself.
+          </p>
+        </div>
+      ) : (
+        <div className="panel mt-4">
+          <p className="label">You are {myPlayer?.name ?? 'a survivor'}</p>
+          <p className="m-0 mt-1 max-w-[62ch] leading-7 text-[var(--text-secondary)]">
+            Speak your truths. Burn cards to reroll. When you fall, narrate your own death —
+            no one else may do it for you.
+          </p>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button className="btn btn-quiet" onClick={() => setLightsOut(!lightsOut)}>
           {lightsOut ? 'Bring back the light' : 'Lights out'}
         </button>
-        {isGM && !session.ended && !confirmEnd && (
-          <button className="btn btn-quiet" onClick={() => setConfirmEnd(true)}>
-            End the story
-          </button>
-        )}
-        {isGM && !session.ended && confirmEnd && (
-          <span className="flex flex-wrap items-center gap-3" role="group" aria-label="Confirm ending">
-            <span className="text-[0.9rem] font-semibold">
-              Put out the last candle? This cannot be undone.
-            </span>
-            <button className="btn btn-primary" onClick={endGame}>
-              Yes, end it
-            </button>
-            <button className="btn-text" onClick={() => setConfirmEnd(false)}>
-              Stay a while
-            </button>
-          </span>
-        )}
         {session.ended && (
           <span className="tag">These things are true. The world is dark.</span>
         )}
       </div>
+
+      {isGM && !session.ended && (
+        <div className="mt-4">
+          <p className="label">Keeper controls</p>
+          {!confirmEnd ? (
+            <button className="btn btn-quiet mt-2" onClick={() => setConfirmEnd(true)}>
+              End the story
+            </button>
+          ) : (
+            <span className="mt-2 flex flex-wrap items-center gap-3" role="group" aria-label="Confirm ending">
+              <span className="text-[0.9rem] font-semibold">
+                Put out the last candle? This cannot be undone.
+              </span>
+              <button className="btn btn-primary" onClick={endGame}>
+                Yes, end it
+              </button>
+              <button className="btn-text" onClick={() => setConfirmEnd(false)}>
+                Stay a while
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       <hr className="rule my-8" />
 
@@ -166,7 +208,12 @@ function SessionPage() {
 
       <div className="grid gap-12 lg:grid-cols-[1.15fr_1fr]">
         <div className="space-y-12">
-          <DiceRoller pool={session.candlesLit} gmPool={gmPool} />
+          <DiceRoller
+            pool={session.candlesLit}
+            gmPool={gmPool}
+            isGM={isGM}
+            canRoll={!isVisitor}
+          />
 
           <hr className="rule" />
 
@@ -174,10 +221,29 @@ function SessionPage() {
             <h2 id="h-cast" className="ritual m-0 text-[1.7rem]">
               The cast
             </h2>
+            {keeper && (
+              <div className="panel mt-4 !py-4">
+                <p className="label">Keeper of the dark</p>
+                <p className="ritual m-0 mt-1 text-[1.5rem] leading-snug">{keeper.name}</p>
+                <p className="m-0 mt-1 text-[0.88rem] text-[var(--text-muted)]">
+                  Has no card. Cannot die.
+                </p>
+              </div>
+            )}
             <div className="mt-4 space-y-4">
-              {session.players.map((p) => (
-                <PlayerCards key={p.clientId} player={p} isMine={p.clientId === me} onUpdate={savePlayer} />
+              {survivors.map((p) => (
+                <PlayerCards
+                  key={p.clientId}
+                  player={p}
+                  isMine={p.clientId === me && !isVisitor}
+                  onUpdate={savePlayer}
+                />
               ))}
+              {survivors.length === 0 && (
+                <p className="text-[0.95rem] text-[var(--text-muted)]">
+                  No survivors yet. The night has not truly begun.
+                </p>
+              )}
             </div>
           </section>
         </div>
@@ -186,12 +252,14 @@ function SessionPage() {
           <TruthsJournal
             truths={session.truths}
             candlesLit={session.candlesLit}
-            userName={myPlayer?.name ?? 'Keeper'}
+            userName={isGM ? (keeper?.name ?? 'Keeper') : (myPlayer?.name ?? 'Survivor')}
+            canWrite={!isVisitor}
             onAdd={async (text) => {
               const v = validateTruth(text)
               if (v) return v
               try {
-                const n = await addTruthX(gameId, lobbyId, myPlayer?.name ?? 'Keeper', text)
+                const author = isGM ? (keeper?.name ?? 'Keeper') : (myPlayer?.name ?? 'Survivor')
+                const n = await addTruthX(gameId, lobbyId, author, text)
                 if (n) setSession(n)
                 return null
               } catch (e: unknown) {
@@ -210,8 +278,13 @@ function SessionPage() {
               Record before the light fails. When no one is left, play them back in the dark.
             </p>
             <div className="mt-4 space-y-4">
-              {session.players.map((p) => (
-                <AudioRecorder key={p.clientId} audioKey={`${gameId}:${lobbyId}:${p.clientId}`} name={p.name} />
+              {survivors.map((p) => (
+                <AudioRecorder
+                  key={p.clientId}
+                  audioKey={`${gameId}:${lobbyId}:${p.clientId}`}
+                  name={p.name}
+                  canRecord={p.clientId === me && !isVisitor}
+                />
               ))}
             </div>
             {lightsOut && (

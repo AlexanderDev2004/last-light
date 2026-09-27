@@ -16,7 +16,19 @@ function verdict(pool: number[], dark: number[], hope: number[], gmPool: number)
   return `Success. The light holds. The scene continues, and ${ones === 1 ? 'one die' : `${ones} dice`} showing one ${ones === 1 ? 'is' : 'are'} set aside.`
 }
 
-export default function DiceRoller({ pool, gmPool }: { pool: number; gmPool: number }) {
+export default function DiceRoller({
+  pool,
+  gmPool,
+  isGM = false,
+  canRoll = true,
+}: {
+  pool: number
+  gmPool: number
+  /** The keeper has no hope die and throws only to oppose. */
+  isGM?: boolean
+  /** Unseated visitors may watch but not touch. */
+  canRoll?: boolean
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const trayRef = useRef<DiceTray | null>(null)
   const [engine, setEngine] = useState<'loading' | 'tray' | 'flat'>('loading')
@@ -64,9 +76,11 @@ export default function DiceRoller({ pool, gmPool }: { pool: number; gmPool: num
   }, [sound])
 
   async function roll() {
+    // The keeper holds no hope die, even if the box is checked.
+    const useHope = hasHope && !isGM
     const d = rollD6(Math.max(pool, 0))
     const g = rollD6(Math.max(gmPool, 0))
-    const h = hasHope ? rollD6(1) : []
+    const h = useHope ? rollD6(1) : []
     setPoolVals(d)
     setHopeVals(h)
     setRolled(true)
@@ -131,7 +145,10 @@ export default function DiceRoller({ pool, gmPool }: { pool: number; gmPool: num
       </h2>
       <p className="m-0 mt-1 text-[0.95rem] leading-7 text-[var(--text-secondary)]">
         Roll as many light dice as candles burn ({pool}), against the dark’s {gmPool}. A six
-        holds. Ones are lost. A hope die holds on five or six and is never lost.
+        holds. Ones are lost.{' '}
+        {isGM
+          ? 'You hold no hope die — yours is the other side of the tray.'
+          : 'A hope die holds on five or six and is never lost.'}
       </p>
 
       {!reduced && (
@@ -144,37 +161,45 @@ export default function DiceRoller({ pool, gmPool }: { pool: number; gmPool: num
         </div>
       )}
 
-      <label className="mt-3 flex items-center gap-2.5 text-[0.95rem] text-[var(--text-secondary)]">
-        <input
-          type="checkbox"
-          checked={hasHope}
-          onChange={(e) => setHasHope(e.target.checked)}
-          className="h-4 w-4 accent-[#e08a3c]"
-        />
-        Roll my hope die with the pool
-      </label>
+      {!isGM && canRoll && (
+        <label className="mt-3 flex items-center gap-2.5 text-[0.95rem] text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={hasHope}
+            onChange={(e) => setHasHope(e.target.checked)}
+            className="h-4 w-4 accent-[#e08a3c]"
+          />
+          Roll my hope die with the pool
+        </label>
+      )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          className="btn btn-primary"
-          onClick={() => void roll()}
-          disabled={pool <= 0 || rolling}
-        >
-          {rollingLabel}
-        </button>
-        <button className="btn btn-quiet" onClick={() => void rerollOnes()} disabled={!rolled || rolling}>
-          Burn virtue or vice to reroll ones
-        </button>
-        {!reduced && (
+      {canRoll ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
-            className="btn-text"
-            onClick={() => setSound(!sound)}
-            aria-pressed={sound}
+            className="btn btn-primary"
+            onClick={() => void roll()}
+            disabled={pool <= 0 || rolling}
           >
-            {sound ? 'Silence the tray' : 'Sound the tray'}
+            {rollingLabel}
           </button>
-        )}
-      </div>
+          <button className="btn btn-quiet" onClick={() => void rerollOnes()} disabled={!rolled || rolling}>
+            Burn virtue or vice to reroll ones
+          </button>
+          {!reduced && (
+            <button
+              className="btn-text"
+              onClick={() => setSound(!sound)}
+              aria-pressed={sound}
+            >
+              {sound ? 'Silence the tray' : 'Sound the tray'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-4 text-[0.9rem] text-[var(--text-muted)]">
+          Only seated players throw. Take the empty chair to take up dice.
+        </p>
+      )}
 
       {engine === 'flat' && rolled && (
         <div className="mt-4 flex flex-wrap gap-2" aria-label="Rolled dice">

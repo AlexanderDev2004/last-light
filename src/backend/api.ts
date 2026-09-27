@@ -243,7 +243,7 @@ export default class Backend extends Cloudflare.Workers.RpcWorker<Backend>()(
             candlesLit: 10,
             ended: false,
           })
-          for (const p of lobby.players) {
+          for (const p of lobby.players.filter((p) => !p.isGm)) {
             yield* db.insert(SessionPlayers).values({
               gameId,
               clientId: p.clientId,

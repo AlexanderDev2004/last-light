@@ -9,9 +9,12 @@ import {
 import { readLobby } from './lobby-store'
 
 export function initSession(gameId: string, lobby: Lobby): GameSession {
-  const players: SessionPlayer[] = lobby.players.map((p) => ({
-    ...p,
-    cards: {
+  // The keeper plays no survivor, so only non-GM players get character cards.
+  const players: SessionPlayer[] = lobby.players
+    .filter((p) => !p.isGM)
+    .map((p) => ({
+      ...p,
+      cards: {
       virtue: '',
       vice: '',
       moment: '',

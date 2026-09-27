@@ -55,7 +55,25 @@ export const Route = createRootRoute({
     ],
   }),
   shellComponent: RootDocument,
+  notFoundComponent: Lost,
 })
+
+function Lost() {
+  return (
+    <div className="wrap px-0 pt-14 pb-20">
+      <p className="label">Lost</p>
+      <h1 className="ritual m-0 mt-3 max-w-[20ch] text-4xl leading-tight sm:text-5xl">
+        This path leads nowhere.
+      </h1>
+      <p className="mt-4 max-w-[60ch] leading-8 text-[var(--text-secondary)]">
+        There is no such room or page. Return to the door and begin again.
+      </p>
+      <a href="/" className="btn btn-quiet mt-6 inline-flex">
+        Back to the door
+      </a>
+    </div>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

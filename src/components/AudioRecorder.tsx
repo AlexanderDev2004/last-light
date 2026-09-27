@@ -32,7 +32,16 @@ async function loadAudio(key: string): Promise<Blob | null> {
   })
 }
 
-export default function AudioRecorder({ audioKey, name }: { audioKey: string; name: string }) {
+export default function AudioRecorder({
+  audioKey,
+  name,
+  canRecord = true,
+}: {
+  audioKey: string
+  name: string
+  /** Unseated visitors may listen but not record. */
+  canRecord?: boolean
+}) {
   const [rec, setRec] = useState<MediaRecorder | null>(null)
   const [has, setHas] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
@@ -81,14 +90,20 @@ export default function AudioRecorder({ audioKey, name }: { audioKey: string; na
         Your name, and what you leave behind. It will be played when the room is dark.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        {!rec ? (
-          <button className="btn btn-quiet" onClick={start}>
-            Record last words
-          </button>
+        {canRecord ? (
+          !rec ? (
+            <button className="btn btn-quiet" onClick={start}>
+              Record last words
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={stop} aria-live="polite">
+              Stop and keep — recording
+            </button>
+          )
         ) : (
-          <button className="btn btn-primary" onClick={stop} aria-live="polite">
-            Stop and keep — recording
-          </button>
+          <p className="m-0 text-[0.85rem] text-[var(--text-muted)]">
+            Only seated players record.
+          </p>
         )}
         {has && !rec && <span className="tag">Kept</span>}
       </div>
