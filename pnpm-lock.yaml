@@ -29,6 +29,9 @@ importers:
       '@tanstack/react-start':
         specifier: latest
         version: 1.168.58(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.2.5)(vite@8.3.1(@types/node@22.20.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      '@trystero-p2p/nostr':
+        specifier: ^0.25.4
+        version: 0.25.4
       '@trystero-p2p/torrent':
         specifier: ^0.25.4
         version: 0.25.4
@@ -1019,6 +1022,9 @@ packages:
   '@neon-rs/load@0.0.4':
     resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
 
+  '@noble/secp256k1@3.2.0':
+    resolution: {integrity: sha512-Z3ZAWOTxJ0EuTuZTi7Y69iK7GgrLHh8sgm45lVDhg/b3Nk1TpAiKhick2KkZisHuupeepSkyIydN/J459SdX1w==}
+
   '@nodable/entities@3.0.0':
     resolution: {integrity: sha512-8L9xFeTYKhm49xfIypoe2W5wV1m/3Z58kT+7kR9A8OyFxcPduI4VmxaUMQyKYrRjUoLLSXv6EKKID5Tvj9cUVw==}
 
@@ -1832,6 +1838,9 @@ packages:
 
   '@trystero-p2p/core@0.25.4':
     resolution: {integrity: sha512-ehvSL1FqW962XyEctXngeDF/IOM1bWmfCKBNR4vwmVa0JGfM0+dlY4TEzSEGghYp3qqGCrpFIVTxdvlBUGVO6Q==}
+
+  '@trystero-p2p/nostr@0.25.4':
+    resolution: {integrity: sha512-QDox1VVHl0ro/CLfQVUtMS9EQbtJhQM7CCsO4SGv9KrPBT+x3bmOqQ4Y6iugsLzQ6sW+a2cwUTxjDRz/BywqMg==}
 
   '@trystero-p2p/torrent@0.25.4':
     resolution: {integrity: sha512-HjC1V9+70j2fhqK26BzDhjJM5A5toLGLgGgS/jZAq+7ufA8HxUHRE4qPU8kn1Wu0E0K7cMGzpWcMCcbVB7AzZA==}
@@ -4008,6 +4017,8 @@ snapshots:
 
   '@neon-rs/load@0.0.4': {}
 
+  '@noble/secp256k1@3.2.0': {}
+
   '@nodable/entities@3.0.0': {}
 
   '@octokit/auth-token@6.0.0': {}
@@ -4781,6 +4792,11 @@ snapshots:
   '@tanstack/virtual-file-routes@1.162.0': {}
 
   '@trystero-p2p/core@0.25.4': {}
+
+  '@trystero-p2p/nostr@0.25.4':
+    dependencies:
+      '@noble/secp256k1': 3.2.0
+      '@trystero-p2p/core': 0.25.4
 
   '@trystero-p2p/torrent@0.25.4':
     dependencies:

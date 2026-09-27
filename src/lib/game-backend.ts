@@ -27,6 +27,7 @@ import {
   p2pHello,
   p2pOnHello,
   p2pOnLobby,
+  p2pOnPeerJoin,
   p2pOnSession,
   p2pSendLobby,
   p2pSendSession,
@@ -228,12 +229,14 @@ export function mergeSession(local: GameSession | null, remote: GameSession): Ga
 function applyRemoteLobby(code: string, remote: Lobby): Lobby {
   const merged = mergeLobby(readLobby(code), remote)
   writeLobby(merged)
+  console.debug(`[p2p] applied lobby ${code} from peer (${merged.players.length} players)`)
   return merged
 }
 
 function applyRemoteSession(gameId: string, code: string, remote: GameSession): GameSession {
   const merged = mergeSession(readSession(gameId, code), remote)
   writeSession(merged)
+  console.debug(`[p2p] applied session ${gameId} from peer (${merged.candlesLit} candles)`)
   return merged
 }
 
@@ -441,7 +444,10 @@ export function subscribeLobbyX(code: string, onChange: (l: Lobby | null) => voi
       cleanup = subscribeLobbyPb(upper, onChange)
     }
     if (stop) return
-    // Peer-to-peer layer: merge arrivals, answer hellos, keep a heartbeat.
+    // Peer-to-peer layer: merge arrivals, answer hellos, greet newcomers,
+    // keep a heartbeat. The join greeting is the critical one: hellos sent
+    // before any peer attaches land nowhere, so state is exchanged again
+    // every time a peer appears.
     cleanups.push(
       p2pOnLobby(upper, (m) => {
         if (stop) return
@@ -449,6 +455,12 @@ export function subscribeLobbyX(code: string, onChange: (l: Lobby | null) => voi
       }),
       p2pOnHello(upper, () => {
         if (stop) return
+        const l = readLobby(upper)
+        if (l) void broadcastLobby(upper, l, false)
+      }),
+      p2pOnPeerJoin(upper, () => {
+        if (stop) return
+        void p2pHello(upper, getClientId(), null)
         const l = readLobby(upper)
         if (l) void broadcastLobby(upper, l, false)
       }),
@@ -697,6 +709,12 @@ export function subscribeSessionX(
       p2pOnHello(upper, (m) => {
         if (stop) return
         if (m.wantGame && m.wantGame !== gameId) return
+        const s = readSession(gameId, upper)
+        if (s) void broadcastSession(upper, s, false)
+      }),
+      p2pOnPeerJoin(upper, () => {
+        if (stop) return
+        void p2pHello(upper, getClientId(), gameId)
         const s = readSession(gameId, upper)
         if (s) void broadcastSession(upper, s, false)
       }),

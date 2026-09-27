@@ -75,7 +75,8 @@ lewat WebRTC (`@trystero-p2p/torrent`, `src/lib/p2p.ts`):
   selama menunggu terlihat status "Listening…".
 - Room hidup selama minimal satu tab terbuka. Kalau semua tab tutup, room hilang
   — tidak ada yang menyimpannya.
-- Penemuan peer memakai public WebSocket tracker (daftar eksplisit di
-  `src/lib/p2p.ts`, diverifikasi 2026-09-27). Domain tracker adalah
+- Penemuan peer memakai dua kawanan signaling independen: WebSocket tracker
+  (daftar eksplisit di `src/lib/p2p.ts`) dan relay Nostr — kawanan mana pun
+  yang tersambung lebih dulu yang menang. Keduanya diverifikasi 2026-09-27. Domain tracker adalah
   infrastruktur torrent — sebagian ad-blocker / jaringan kantor memblokirnya,
   dan kalau begitu direct link tidak bisa tersambung sama sekali.
