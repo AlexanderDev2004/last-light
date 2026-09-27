@@ -34,6 +34,8 @@ function SessionPage() {
   const [lightsOut, setLightsOut] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [candleBusy, setCandleBusy] = useState(false)
+  const [candleError, setCandleError] = useState<string | null>(null)
   const [backend, setBackend] = useState<BackendKind | 'checking'>('checking')
   const me = typeof window !== 'undefined' ? getClientId() : ''
   // Unknown until the lobby loads — and never assumed to be the keeper.
@@ -194,13 +196,31 @@ function SessionPage() {
       <CandleBar
         lit={session.candlesLit}
         canControl={isGM && !session.ended}
+        busy={candleBusy}
+        error={candleError}
         onExtinguish={async () => {
-          const n = await extinguishCandleX(gameId, lobbyId)
-          if (n) setSession(n)
+          setCandleBusy(true)
+          setCandleError(null)
+          try {
+            const n = await extinguishCandleX(gameId, lobbyId)
+            if (n) setSession(n)
+          } catch (e) {
+            setCandleError(e instanceof Error ? e.message : String(e))
+          } finally {
+            setCandleBusy(false)
+          }
         }}
         onRelight={async () => {
-          const n = await resetSessionX(gameId, lobbyId)
-          if (n) setSession(n)
+          setCandleBusy(true)
+          setCandleError(null)
+          try {
+            const n = await resetSessionX(gameId, lobbyId)
+            if (n) setSession(n)
+          } catch (e) {
+            setCandleError(e instanceof Error ? e.message : String(e))
+          } finally {
+            setCandleBusy(false)
+          }
         }}
       />
 

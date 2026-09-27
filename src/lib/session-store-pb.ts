@@ -111,12 +111,14 @@ export async function updateSessionPb(
   lobbyCode: string,
   fn: (s: GameSession) => GameSession,
 ): Promise<GameSession | null> {
-  const cur = (await findRecord(gameId, lobbyCode)) ?? readSession(gameId, lobbyCode)
-  const base = cur ? toSession(cur as SessionRecord) : null
-  const local = base ?? readSession(gameId, lobbyCode)
-  if (!local && !(await pbAvailable())) return localUpdate(gameId, lobbyCode, fn)
-  const start = local ?? (await ensureSessionPb(gameId, lobbyCode))
-  if (!start) return null
+  // toSession() hanya untuk record PocketBase (punya `lobbyCode`).
+  // Objek GameSession lokal sudah berbentuk jadi (punya `lobbyId`) dan
+  // TIDAK boleh dilewatkan ke toSession — dulu itu membuat lobbyId jadi
+  // undefined lalu crash di writeSession (s.lobbyId.toUpperCase()).
+  const rec = await findRecord(gameId, lobbyCode)
+  if (rec) return pushSessionPb(fn(toSession(rec)))
+  const start = readSession(gameId, lobbyCode) ?? (await ensureSessionPb(gameId, lobbyCode))
+  if (!start) return localUpdate(gameId, lobbyCode, fn)
   return pushSessionPb(fn(start))
 }
 
