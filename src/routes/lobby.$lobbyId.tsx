@@ -153,7 +153,7 @@ function LobbyPage() {
       </p>
       <p className="mt-2 max-w-[60ch] leading-7 text-[var(--text-secondary)]">
         Speak this code to gather the others. When everyone is seated and ready, the keeper
-        begins the story.
+        begins the story — the writing ritual waits on the other side.
       </p>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -216,6 +216,7 @@ function LobbyPage() {
             <h2 id="h-seated" className="ritual m-0 text-3xl">
               Those seated
             </h2>
+
             <div className="mt-2" role="list" aria-label="Players">
               {lobby.players.map((p) => (
                 <div key={p.clientId} className="ledger-row" role="listitem">

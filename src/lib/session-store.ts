@@ -32,6 +32,7 @@ export function initSession(gameId: string, lobby: Lobby): GameSession {
     players,
     log: [`Sesi dimulai. 10 lilin menyala. These things are true. The world is dark...`],
     ended: false,
+    leaveRequests: [],
   }
 }
 

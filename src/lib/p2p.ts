@@ -23,14 +23,16 @@ const RELAY_URLS = [
 export const TRACKER_URLS: string[] = [...RELAY_URLS]
 
 // Nostr relays used as a second, independent signaling swarm. Verified
-// reachable 2026-09-27 (relay.mostr.pub was dead and is excluded). Nostr
-// infrastructure is unrelated to torrent trackers, so ad-blockers and
-// networks that filter one family usually still pass the other.
+// reachable 2026-09-27 (relay.mostr.pub was dead and is excluded;
+// yabu.me/v2 dropped 2026-09-27 after repeated connection failures,
+// replaced by relay.damus.io — consistently top-ranked public relay).
+// Nostr infrastructure is unrelated to torrent trackers, so ad-blockers
+// and networks that filter one family usually still pass the other.
 const NOSTR_RELAYS = [
   'wss://nos.lol',
+  'wss://relay.damus.io',
   'wss://purplerelay.com',
   'wss://strfry.shock.network',
-  'wss://yabu.me/v2',
   'wss://relay.snort.social',
 ]
 

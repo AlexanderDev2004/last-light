@@ -485,6 +485,14 @@ a {
   border-top: 3px solid #8b8375;
 }
 
+.ddb-card.ddb-awaiting {
+  border-top: 3px dashed var(--accent);
+}
+
+.ddb-awaiting .ddb-kicker {
+  color: var(--accent);
+}
+
 .ddb-pop {
   animation: ddb-pop 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }

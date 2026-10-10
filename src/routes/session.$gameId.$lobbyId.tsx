@@ -1,17 +1,22 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { isSetupComplete } from '../lib/card-drafts'
 import AudioRecorder from '../components/AudioRecorder'
 import CandleBar from '../components/CandleBar'
 import DiceRoller from '../components/DiceRoller'
 import PlayerCards from '../components/PlayerCards'
+import SetupRitual from '../components/SetupRitual'
 import TruthsJournal from '../components/TruthsJournal'
 import {
   addTruthX,
+  answerLeaveX,
   backendStatus,
+  cancelLeaveX,
   endGameX,
   ensureSessionX,
   extinguishCandleX,
   fetchLobbyX,
+  requestLeaveX,
   resetSessionX,
   savePlayerCardsX,
   subscribeSessionX,
@@ -36,6 +41,9 @@ function SessionPage() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [candleBusy, setCandleBusy] = useState(false)
   const [candleError, setCandleError] = useState<string | null>(null)
+  const [leaveBusy, setLeaveBusy] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
+  const [confirmLeave, setConfirmLeave] = useState(false)
   const [backend, setBackend] = useState<BackendKind | 'checking'>('checking')
   const me = typeof window !== 'undefined' ? getClientId() : ''
   // Unknown until the lobby loads — and never assumed to be the keeper.
@@ -73,6 +81,8 @@ function SessionPage() {
     }
   }, [gameId, lobbyId])
 
+
+
   if (!checked || !session) {
     if (!checked) {
       return (
@@ -105,6 +115,12 @@ function SessionPage() {
   }
 
   const gmPool = 10 - session.candlesLit
+  // The writing ritual gates play: until every survivor's four cards are
+  // written — and no play has happened yet (log still at its first line) —
+  // the table writes instead of rolling. Derived from synced state, so all
+  // screens agree with zero schema changes.
+  const showSetup =
+    !session.ended && session.log.length <= 1 && !isSetupComplete(session.players)
 
   async function savePlayer(next: SessionPlayer) {
     const updated = await savePlayerCardsX(gameId, lobbyId, next)
@@ -117,6 +133,49 @@ function SessionPage() {
     setConfirmEnd(false)
     setLightsOut(true)
   }
+
+  async function handleExtinguish() {
+    setCandleBusy(true)
+    setCandleError(null)
+    try {
+      const n = await extinguishCandleX(gameId, lobbyId)
+      if (n) setSession(n)
+    } catch (e) {
+      setCandleError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCandleBusy(false)
+    }
+  }
+
+  async function handleRelight() {
+    setCandleBusy(true)
+    setCandleError(null)
+    try {
+      const n = await resetSessionX(gameId, lobbyId)
+      if (n) setSession(n)
+    } catch (e) {
+      setCandleError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCandleBusy(false)
+    }
+  }
+
+  async function runLeave(fn: () => Promise<GameSession | null>) {
+    setLeaveBusy(true)
+    setLeaveError(null)
+    try {
+      const n = await fn()
+      if (n) setSession(n)
+    } catch (e) {
+      setLeaveError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLeaveBusy(false)
+    }
+  }
+
+  const leaveRequests = session?.leaveRequests ?? []
+  const myRequest = leaveRequests.find((r) => r.clientId === me)
+  const pendingLeaves = leaveRequests.filter((r) => r.status === 'pending')
 
   return (
     <div
@@ -156,6 +215,94 @@ function SessionPage() {
             Speak your truths. Burn cards to reroll. When you fall, narrate your own death —
             no one else may do it for you.
           </p>
+          {!isVisitor && myPlayer && !session.ended && (
+            <div className="mt-3">
+              {!myRequest && !confirmLeave && (
+                <button
+                  className="btn btn-quiet"
+                  disabled={leaveBusy}
+                  onClick={() => setConfirmLeave(true)}
+                >
+                  END session
+                </button>
+              )}
+              {!myRequest && confirmLeave && (
+                <span className="flex flex-wrap items-center gap-3" role="group" aria-label="Confirm leaving">
+                  <span className="text-[0.9rem] font-semibold">
+                    Leave the story? The keeper must let you go first.
+                  </span>
+                  <button
+                    className="btn btn-quiet"
+                    disabled={leaveBusy}
+                    onClick={() => {
+                      setConfirmLeave(false)
+                      void runLeave(() => requestLeaveX(gameId, lobbyId))
+                    }}
+                  >
+                    Yes, ask the keeper
+                  </button>
+                  <button className="btn-text" onClick={() => setConfirmLeave(false)}>
+                    Stay
+                  </button>
+                </span>
+              )}
+              {myRequest?.status === 'pending' && (
+                <span className="flex flex-wrap items-center gap-3" role="status">
+                  <span className="text-[0.9rem] text-[var(--text-secondary)]">
+                    The keeper is weighing your fate…
+                  </span>
+                  <button
+                    className="btn-text"
+                    disabled={leaveBusy}
+                    onClick={() => void runLeave(() => cancelLeaveX(gameId, lobbyId))}
+                  >
+                    Take it back
+                  </button>
+                </span>
+              )}
+              {myRequest?.status === 'denied' && (
+                <span className="flex flex-wrap items-center gap-3" role="status">
+                  <span className="text-[0.9rem] text-[var(--text-secondary)]">
+                    The keeper asked you to stay.
+                  </span>
+                  <button
+                    className="btn-text"
+                    disabled={leaveBusy}
+                    onClick={() => void runLeave(() => requestLeaveX(gameId, lobbyId))}
+                  >
+                    Ask again
+                  </button>
+                  <button
+                    className="btn-text"
+                    disabled={leaveBusy}
+                    onClick={() => void runLeave(() => cancelLeaveX(gameId, lobbyId))}
+                  >
+                    Let it rest
+                  </button>
+                </span>
+              )}
+              {myRequest?.status === 'approved' && (
+                <span className="flex flex-wrap items-center gap-3" role="status">
+                  <span className="text-[0.9rem] text-[var(--text-secondary)]">
+                    The keeper let you go. Your story ends here.
+                  </span>
+                  <button
+                    className="btn btn-quiet"
+                    onClick={() =>
+                      nav({ to: '/lobby/$lobbyId', params: { lobbyId: lobbyId.toUpperCase() } })
+                    }
+                  >
+                    Leave the table
+                  </button>
+                </span>
+              )}
+              {leaveError && (
+                <p className="inline-error mt-3" role="alert">
+                  {leaveError}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -171,9 +318,43 @@ function SessionPage() {
       {isGM && !session.ended && (
         <div className="mt-4">
           <p className="label">Keeper controls</p>
+          {pendingLeaves.length > 0 && (
+            <div className="panel-sunken mt-2" role="group" aria-label="Leave requests">
+              <p className="label">Leave requests</p>
+              <div className="mt-2 space-y-2">
+                {pendingLeaves.map((r) => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-3">
+                    <span className="text-[0.95rem] text-[var(--text-secondary)]">
+                      <strong className="text-[var(--text-primary)]">{r.name}</strong> asks to
+                      leave the story.
+                    </span>
+                    <button
+                      className="btn btn-quiet !py-1.5"
+                      disabled={leaveBusy}
+                      onClick={() => void runLeave(() => answerLeaveX(gameId, lobbyId, r.clientId, true))}
+                    >
+                      Let go
+                    </button>
+                    <button
+                      className="btn-text"
+                      disabled={leaveBusy}
+                      onClick={() => void runLeave(() => answerLeaveX(gameId, lobbyId, r.clientId, false))}
+                    >
+                      Keep them
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {leaveError && (
+                <p className="inline-error mt-3" role="alert">
+                  {leaveError}
+                </p>
+              )}
+            </div>
+          )}
           {!confirmEnd ? (
             <button className="btn btn-quiet mt-2" onClick={() => setConfirmEnd(true)}>
-              End the story
+              END session
             </button>
           ) : (
             <span className="mt-2 flex flex-wrap items-center gap-3" role="group" aria-label="Confirm ending">
@@ -191,6 +372,21 @@ function SessionPage() {
         </div>
       )}
 
+      {showSetup ? (
+        <>
+          <hr className="rule my-8" />
+          <SetupRitual
+            players={session.players}
+            me={me}
+            isGM={isGM}
+            isVisitor={isVisitor}
+            onWrite={(player, patch) =>
+              void savePlayer({ ...player, cards: { ...player.cards, ...patch } })
+            }
+          />
+        </>
+      ) : (
+        <>
       <hr className="rule my-8" />
 
       <CandleBar
@@ -198,30 +394,8 @@ function SessionPage() {
         canControl={isGM && !session.ended}
         busy={candleBusy}
         error={candleError}
-        onExtinguish={async () => {
-          setCandleBusy(true)
-          setCandleError(null)
-          try {
-            const n = await extinguishCandleX(gameId, lobbyId)
-            if (n) setSession(n)
-          } catch (e) {
-            setCandleError(e instanceof Error ? e.message : String(e))
-          } finally {
-            setCandleBusy(false)
-          }
-        }}
-        onRelight={async () => {
-          setCandleBusy(true)
-          setCandleError(null)
-          try {
-            const n = await resetSessionX(gameId, lobbyId)
-            if (n) setSession(n)
-          } catch (e) {
-            setCandleError(e instanceof Error ? e.message : String(e))
-          } finally {
-            setCandleBusy(false)
-          }
-        }}
+        onExtinguish={handleExtinguish}
+        onRelight={handleRelight}
       />
 
       <hr className="rule my-10" />
@@ -233,6 +407,8 @@ function SessionPage() {
             gmPool={gmPool}
             isGM={isGM}
             canRoll={!isVisitor}
+            onFailureCandle={handleExtinguish}
+            canQuickCandle={isGM && !session.ended && session.candlesLit > 1}
           />
 
           <hr className="rule" />
@@ -353,6 +529,8 @@ function SessionPage() {
           </section>
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

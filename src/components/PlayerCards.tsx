@@ -1,19 +1,10 @@
 import { useState } from 'react'
+import { CARD_HINT, CARD_LABEL, CARD_ORDER } from '../lib/card-drafts'
 import type { CardKind, SessionPlayer } from '../lib/ten-candles'
 
-const ORDER: CardKind[] = ['virtue', 'vice', 'moment', 'brink']
-const LABEL: Record<CardKind, string> = {
-  virtue: 'Virtue',
-  vice: 'Vice',
-  moment: 'Moment',
-  brink: 'Brink',
-}
-const HINT: Record<CardKind, string> = {
-  virtue: 'Who you are in the light.',
-  vice: 'Who you are in the dark.',
-  moment: 'When you find hope. Fulfilling it earns a hope die.',
-  brink: 'A secret, beginning “I have seen you…”.',
-}
+const ORDER = CARD_ORDER
+const LABEL = CARD_LABEL
+const HINT = CARD_HINT
 
 export default function PlayerCards({
   player,

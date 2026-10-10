@@ -49,6 +49,15 @@ export class TruthView extends Schema.Class<TruthView>('TruthView')({
   candleLeft: Schema.Number,
 }) {}
 
+export class LeaveRequestView extends Schema.Class<LeaveRequestView>(
+  'LeaveRequestView',
+)({
+  id: Schema.Number,
+  clientId: Schema.String,
+  name: Schema.String,
+  status: Schema.String,
+}) {}
+
 export class SessionView extends Schema.Class<SessionView>('SessionView')({
   gameId: Schema.String,
   lobbyId: Schema.String,
@@ -57,6 +66,7 @@ export class SessionView extends Schema.Class<SessionView>('SessionView')({
   players: Schema.Array(SessionPlayerView),
   truths: Schema.Array(TruthView),
   log: Schema.Array(Schema.String),
+  leaveRequests: Schema.Array(LeaveRequestView),
 }) {}
 
 // ---------- Typed errors ----------
@@ -164,6 +174,27 @@ export class GameRpcs extends RpcGroup.make(
       clientId: Schema.String,
       cards: CardsView,
     },
+    success: SessionView,
+    error: SessionNotFound,
+  }),
+  Rpc.make('requestLeave', {
+    payload: { gameId: Schema.String, clientId: Schema.String },
+    success: SessionView,
+    error: Schema.Union([SessionNotFound, NotInLobby, NotGM]),
+  }),
+  Rpc.make('answerLeave', {
+    payload: {
+      gameId: Schema.String,
+      lobbyId: Schema.String,
+      clientId: Schema.String,
+      targetClientId: Schema.String,
+      approve: Schema.Boolean,
+    },
+    success: SessionView,
+    error: Schema.Union([SessionNotFound, NotGM]),
+  }),
+  Rpc.make('cancelLeave', {
+    payload: { gameId: Schema.String, clientId: Schema.String },
     success: SessionView,
     error: SessionNotFound,
   }),

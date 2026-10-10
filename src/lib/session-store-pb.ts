@@ -9,7 +9,7 @@ import {
   ensureSession as localEnsure,
   updateSession as localUpdate,
 } from './session-store'
-import type { GameSession } from './ten-candles'
+import type { GameSession, LeaveRequest } from './ten-candles'
 
 interface SessionRecord {
   id: string
@@ -20,6 +20,7 @@ interface SessionRecord {
   players: GameSession['players']
   truths: GameSession['truths']
   log: string[]
+  leaveRequests?: LeaveRequest[]
 }
 
 function toSession(r: SessionRecord): GameSession {
@@ -31,6 +32,7 @@ function toSession(r: SessionRecord): GameSession {
     players: r.players ?? [],
     log: r.log ?? [],
     ended: !!r.ended,
+    leaveRequests: r.leaveRequests ?? [],
   }
 }
 
@@ -74,6 +76,7 @@ export async function ensureSessionPb(
         players: s.players,
         truths: [],
         log: s.log,
+        leaveRequests: [],
       })
       writeSession(s)
       return s
@@ -97,6 +100,7 @@ export async function pushSessionPb(s: GameSession): Promise<GameSession> {
           players: s.players,
           truths: s.truths,
           log: s.log.slice(-200),
+          leaveRequests: s.leaveRequests,
         })
       }
     } catch {

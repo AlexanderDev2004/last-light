@@ -85,6 +85,17 @@ export const api = {
       alive: boolean
     }
   }) => rpc((c) => c.updateCards(payload)),
+  requestLeave: (payload: { gameId: string; clientId: string }) =>
+    rpc((c) => c.requestLeave(payload)),
+  answerLeave: (payload: {
+    gameId: string
+    lobbyId: string
+    clientId: string
+    targetClientId: string
+    approve: boolean
+  }) => rpc((c) => c.answerLeave(payload)),
+  cancelLeave: (payload: { gameId: string; clientId: string }) =>
+    rpc((c) => c.cancelLeave(payload)),
   endGame: (payload: { gameId: string; lobbyId: string; clientId: string }) =>
     rpc((c) => c.endGame(payload)),
   resetSession: (payload: { gameId: string; lobbyId: string; clientId: string }) =>

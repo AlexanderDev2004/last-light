@@ -44,6 +44,16 @@ export interface TruthEntry {
   at: number
 }
 
+export type LeaveStatus = 'pending' | 'approved' | 'denied'
+
+export interface LeaveRequest {
+  id: string
+  clientId: string
+  name: string
+  status: LeaveStatus
+  at: number
+}
+
 export interface GameSession {
   gameId: string
   lobbyId: string
@@ -52,6 +62,8 @@ export interface GameSession {
   players: SessionPlayer[]
   log: string[]
   ended: boolean
+  /** A player may only leave with the keeper's blessing (approved request). */
+  leaveRequests: LeaveRequest[]
   /** Lamport-ish stamp for peer-to-peer merges (higher wins). */
   rev?: number
 }

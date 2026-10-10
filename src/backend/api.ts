@@ -10,6 +10,7 @@ import { Hyperdrive } from './database.ts'
 import {
   CardsView,
   GameRpcs,
+  LeaveRequestView,
   LobbyFull,
   LobbyNotFound,
   LobbyPlayerView,
@@ -25,6 +26,7 @@ import {
 } from './rpc.ts'
 import {
   GameSessions,
+  LeaveRequests,
   Lobbies,
   LobbyPlayers,
   SessionLog,
@@ -100,11 +102,26 @@ export default class Backend extends Cloudflare.Workers.RpcWorker<Backend>()(
           .where(eq(SessionPlayers.gameId, gameId))
         const truths = yield* db.select().from(Truths).where(eq(Truths.gameId, gameId))
         const logs = yield* db.select().from(SessionLog).where(eq(SessionLog.gameId, gameId))
+        // Leave requests live in their own table; older databases without
+        // the migration simply report none instead of breaking reads.
+        const leaveRows = yield* Effect.orElseSucceed(
+          db.select().from(LeaveRequests).where(eq(LeaveRequests.gameId, gameId)),
+          () => [] as { id: number; clientId: string; name: string; status: string }[],
+        )
         return new SessionView({
           gameId: s.gameId,
           lobbyId: s.lobbyId,
           candlesLit: s.candlesLit ?? 10,
           ended: s.ended ?? false,
+          leaveRequests: leaveRows.map(
+            (r) =>
+              new LeaveRequestView({
+                id: r.id,
+                clientId: r.clientId,
+                name: r.name,
+                status: r.status ?? 'pending',
+              }),
+          ),
           players: players.map(
             (p) =>
               new SessionPlayerView({
@@ -340,6 +357,97 @@ export default class Backend extends Cloudflare.Workers.RpcWorker<Backend>()(
               and(
                 eq(SessionPlayers.gameId, gameId),
                 eq(SessionPlayers.clientId, clientId),
+              ),
+            )
+          return yield* loadSession(gameId)
+        }).pipe(Effect.orDie),
+
+      requestLeave: ({ gameId, clientId }) =>
+        Effect.gen(function* () {
+          const session = yield* loadSession(gameId)
+          const me = session.players.find((p) => p.clientId === clientId)
+          if (!me) {
+            return yield* new NotInLobby({ message: 'Kamu belum join sesi ini.' })
+          }
+          if (me.isGm) {
+            return yield* new NotGM({ message: 'Keeper mengakhiri cerita langsung.' })
+          }
+          const existing = yield* db
+            .select()
+            .from(LeaveRequests)
+            .where(
+              and(
+                eq(LeaveRequests.gameId, gameId),
+                eq(LeaveRequests.clientId, clientId),
+              ),
+            )
+          if (existing[0]) {
+            yield* db
+              .update(LeaveRequests)
+              .set({ status: 'pending', name: me.name })
+              .where(eq(LeaveRequests.id, existing[0].id))
+          } else {
+            yield* db.insert(LeaveRequests).values({
+              gameId,
+              clientId,
+              name: me.name,
+              status: 'pending',
+            })
+          }
+          return yield* loadSession(gameId)
+        }).pipe(Effect.orDie),
+
+      answerLeave: ({ gameId, lobbyId, clientId, targetClientId, approve }) =>
+        Effect.gen(function* () {
+          const lobby = yield* loadLobby(lobbyId)
+          if (lobby.gmId !== clientId) {
+            return yield* new NotGM({ message: 'Hanya GM yang bisa menjawab.' })
+          }
+          const session = yield* loadSession(gameId)
+          const rows = yield* db
+            .select()
+            .from(LeaveRequests)
+            .where(
+              and(
+                eq(LeaveRequests.gameId, gameId),
+                eq(LeaveRequests.clientId, targetClientId),
+              ),
+            )
+          const req = rows[0]
+          if (!req) return yield* loadSession(gameId)
+          const status = approve ? 'approved' : 'denied'
+          yield* db
+            .update(LeaveRequests)
+            .set({ status })
+            .where(eq(LeaveRequests.id, req.id))
+          if (approve) {
+            yield* db
+              .update(SessionPlayers)
+              .set({ alive: false })
+              .where(
+                and(
+                  eq(SessionPlayers.gameId, gameId),
+                  eq(SessionPlayers.clientId, targetClientId),
+                ),
+              )
+            const target = session.players.find((p) => p.clientId === targetClientId)
+            yield* db.insert(SessionLog).values({
+              gameId,
+              message: `${target?.name ?? 'A survivor'} has fallen and left the story.`,
+            })
+          }
+          return yield* loadSession(gameId)
+        }).pipe(Effect.orDie),
+
+      cancelLeave: ({ gameId, clientId }) =>
+        Effect.gen(function* () {
+          yield* loadSession(gameId)
+          yield* db
+            .delete(LeaveRequests)
+            .where(
+              and(
+                eq(LeaveRequests.gameId, gameId),
+                eq(LeaveRequests.clientId, clientId),
               ),
             )
           return yield* loadSession(gameId)

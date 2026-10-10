@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import { api } from '../rpc-client'
 import type {
   LobbyView,
@@ -45,6 +46,7 @@ import {
 } from './session-store-pb'
 import type {
   GameSession,
+  LeaveStatus,
   Lobby,
   PlayerCards,
   SessionPlayer,
@@ -174,6 +176,15 @@ function toSession(v: SessionView): GameSession {
       at: Date.now(),
     })),
     log: [...v.log],
+    leaveRequests: v.leaveRequests.map((r) => ({
+      id: String(r.id),
+      clientId: r.clientId,
+      name: r.name,
+      status: (r.status === 'approved' || r.status === 'denied'
+        ? r.status
+        : 'pending') as LeaveStatus,
+      at: Date.now(),
+    })),
   }
 }
 
@@ -213,6 +224,21 @@ export function mergeSession(local: GameSession | null, remote: GameSession): Ga
   for (const line of remote.log) {
     if (!log.includes(line)) log.push(line)
   }
+  // Leave requests merge by id; a settled verdict outranks pending, and the
+  // newest stamp wins within the same status.
+  const rank = (s: LeaveStatus) => (s === 'pending' ? 0 : 1)
+  // Older stored sessions predate leave requests — tolerate the missing field.
+  const reqs = new Map((local.leaveRequests ?? []).map((r) => [r.id, r]))
+  for (const rr of remote.leaveRequests ?? []) {
+    const lr = reqs.get(rr.id)
+    if (!lr) reqs.set(rr.id, rr)
+    else if (
+      rank(rr.status) > rank(lr.status) ||
+      (rr.status === lr.status && rr.at > lr.at)
+    ) {
+      reqs.set(rr.id, rr)
+    }
+  }
   const takeRemote = (remote.rev ?? 0) >= (local.rev ?? 0)
   return {
     gameId: local.gameId,
@@ -223,6 +249,7 @@ export function mergeSession(local: GameSession | null, remote: GameSession): Ga
     players: [...players.values()],
     truths,
     log: log.slice(-200),
+    leaveRequests: [...reqs.values()],
   }
 }
 
@@ -668,6 +695,133 @@ export async function resetSessionX(
     log: [...s.log, 'The night begins over. Ten candles burn again.'],
   }))
   if (out) return broadcastSession(upper, out, true)
+  return out
+}
+
+function leaveName(s: GameSession, clientId: string): string {
+  return s.players.find((p) => p.clientId === clientId)?.name ?? 'A survivor'
+}
+
+function upsertLeaveRequest(s: GameSession, clientId: string): GameSession {
+  const at = Date.now()
+  const name = leaveName(s, clientId)
+  const current = s.leaveRequests ?? []
+  const status = 'pending' as const
+  return {
+    ...s,
+    leaveRequests: current.some((r) => r.clientId === clientId)
+      ? current.map((r) => (r.clientId === clientId ? { ...r, name, status, at } : r))
+      : [...current, { id: `lr_${nanoid(6)}`, clientId, name, status, at }],
+  }
+}
+
+export async function requestLeaveX(
+  gameId: string,
+  lobbyCode: string,
+): Promise<GameSession | null> {
+  const upper = lobbyCode.toUpperCase()
+  const me = getClientId()
+  if (await fxAvailable()) {
+    try {
+      return toSession(await timeout(api.requestLeave({ gameId, clientId: me })))
+    } catch {
+      // fall through
+    }
+  }
+  if (await pbAvailable()) {
+    return updateSessionPb(gameId, lobbyCode, (s) => upsertLeaveRequest(s, me))
+  }
+  const out = await updateSessionPb(gameId, lobbyCode, (s) => upsertLeaveRequest(s, me))
+  if (out) return broadcastSession(upper, out, false)
+  return out
+}
+
+export async function answerLeaveX(
+  gameId: string,
+  lobbyCode: string,
+  targetClientId: string,
+  approve: boolean,
+): Promise<GameSession | null> {
+  const upper = lobbyCode.toUpperCase()
+  if (await fxAvailable()) {
+    try {
+      return toSession(
+        await timeout(
+          api.answerLeave({
+            gameId,
+            lobbyId: upper,
+            clientId: getClientId(),
+            targetClientId,
+            approve,
+          }),
+        ),
+      )
+    } catch {
+      // fall through
+    }
+  }
+  const apply = (s: GameSession): GameSession => {
+    const status: LeaveStatus = approve ? 'approved' : 'denied'
+    return {
+      ...s,
+      leaveRequests: (s.leaveRequests ?? []).map((r) =>
+        r.clientId === targetClientId ? { ...r, status } : r,
+      ),
+      players: approve
+        ? s.players.map((p) =>
+            p.clientId === targetClientId
+              ? { ...p, cards: { ...p.cards, alive: false } }
+              : p,
+          )
+        : s.players,
+      log: approve
+        ? [...s.log, `${leaveName(s, targetClientId)} has fallen and left the story.`]
+        : s.log,
+    }
+  }
+  if (await pbAvailable()) {
+    return updateSessionPb(gameId, lobbyCode, apply)
+  }
+  requireKeeper(upper)
+  const out = await updateSessionPb(gameId, lobbyCode, apply)
+  if (out) {
+    // The keeper rewrites another player's record: stamp it so the P2P
+    // merge (higher rev wins, ties to remote) keeps the keeper's verdict.
+    const stamped: GameSession = approve
+      ? {
+          ...out,
+          players: out.players.map((p) =>
+            p.clientId === targetClientId ? { ...p, rev: Date.now() } : p,
+          ),
+        }
+      : out
+    return broadcastSession(upper, stamped, true)
+  }
+  return out
+}
+
+export async function cancelLeaveX(
+  gameId: string,
+  lobbyCode: string,
+): Promise<GameSession | null> {
+  const upper = lobbyCode.toUpperCase()
+  const me = getClientId()
+  if (await fxAvailable()) {
+    try {
+      return toSession(await timeout(api.cancelLeave({ gameId, clientId: me })))
+    } catch {
+      // fall through
+    }
+  }
+  const drop = (s: GameSession): GameSession => ({
+    ...s,
+    leaveRequests: (s.leaveRequests ?? []).filter((r) => r.clientId !== me),
+  })
+  if (await pbAvailable()) {
+    return updateSessionPb(gameId, lobbyCode, drop)
+  }
+  const out = await updateSessionPb(gameId, lobbyCode, drop)
+  if (out) return broadcastSession(upper, out, false)
   return out
 }
 

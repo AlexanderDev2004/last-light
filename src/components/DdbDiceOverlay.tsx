@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { DiceTray, type TraySpec } from '../lib/dice-tray'
 
-export type DdbOutcome = 'success' | 'success-price' | 'failure'
+export type DdbOutcome = 'success' | 'success-price' | 'failure' | 'awaiting'
 
 export interface DdbRollResult {
   pool: number[]
@@ -16,6 +16,7 @@ const OUTCOME_LABEL: Record<DdbOutcome, string> = {
   success: 'Success — cahaya bertahan',
   'success-price': 'Success at a price',
   failure: 'Failure — lilin padam',
+  awaiting: 'Menunggu balasan the dark',
 }
 
 function Chip({ n, kind, label }: { n: number; kind: 'light' | 'dark' | 'hope'; label: string }) {
@@ -162,7 +163,9 @@ export default function DdbDiceOverlay({
                 ? '✦ Success'
                 : result.outcome === 'success-price'
                   ? '✦ Success at a price'
-                  : '✧ Failure'}
+                  : result.outcome === 'awaiting'
+                    ? '◌ Tantangan dilempar'
+                    : '✧ Failure'}
             </p>
             <h3 className="ddb-title">{OUTCOME_LABEL[result.outcome]}</h3>
             <p className="ddb-verdict">{result.verdict}</p>

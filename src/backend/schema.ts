@@ -70,6 +70,17 @@ export const SessionPlayers = pgTable(
   (t) => [primaryKey({ columns: [t.gameId, t.clientId] })],
 )
 
+export const LeaveRequests = pgTable('leave_requests', {
+  id: serial('id').primaryKey(),
+  gameId: text('game_id')
+    .notNull()
+    .references(() => GameSessions.gameId, { onDelete: 'cascade' }),
+  clientId: text('client_id').notNull(),
+  name: text('name').notNull(),
+  status: text('status').notNull().default('pending'), // pending | approved | denied
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const Truths = pgTable('truths', {
   id: text('id').primaryKey(),
   gameId: text('game_id')
@@ -91,6 +102,6 @@ export const SessionLog = pgTable('session_log', {
 })
 
 export const relations = defineRelations(
-  { Lobbies, LobbyPlayers, GameSessions, SessionPlayers, Truths, SessionLog },
+  { Lobbies, LobbyPlayers, GameSessions, SessionPlayers, LeaveRequests, Truths, SessionLog },
   () => ({}),
 )
