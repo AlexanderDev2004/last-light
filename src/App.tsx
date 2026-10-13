@@ -2,13 +2,18 @@ import { useEffect, useReducer, useState } from 'react'
 import { initialNight, reducer } from './game/engine'
 import type { Action, NightState } from './game/types'
 import { loadNight, saveNight } from './lib/storage'
+import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyState } from './lobby/lobby'
 import Gathering from './components/Gathering'
+import LobbyHome from './components/LobbyHome'
+import RoomScreen from './components/RoomScreen'
 import TruthPhase from './components/TruthPhase'
 import ScenePhase from './components/ScenePhase'
 import LastStand from './components/LastStand'
 import Epilogue from './components/Epilogue'
 import RulesModal from './components/RulesModal'
 import TitleScreen from './components/TitleScreen'
+
+type Screen = 'title' | 'lobby' | 'night'
 
 function hydrate(): NightState {
   const saved = loadNight<NightState>()
@@ -30,7 +35,15 @@ export default function App() {
     undefined,
     hydrate,
   )
-  const [entered, setEntered] = useState(() => state.phase !== 'gathering' || state.gmName !== '')
+  const [lobby, lobbyDispatch] = useReducer(
+    (current: LobbyState, action: LobbyAction) => lobbyReducer(current, action),
+    undefined,
+    initialLobby,
+  )
+  // A saved night in progress resumes; otherwise the night starts at the lobby.
+  const [screen, setScreen] = useState<Screen>(() =>
+    state.phase !== 'gathering' || state.gmName !== '' ? 'night' : 'title',
+  )
   const [rulesOpen, setRulesOpen] = useState(false)
 
   useEffect(() => {
@@ -39,7 +52,7 @@ export default function App() {
 
   return (
     <div className={state.phase === 'laststand' || state.phase === 'epilogue' ? 'night-dark' : undefined}>
-      {entered && state.phase !== 'gathering' && (
+      {screen === 'night' && state.phase !== 'gathering' && (
         <header className="topbar">
           <span className="topbar-mark ritual">Ten Candles</span>
           <span className="topbar-meta nums">
@@ -59,7 +72,8 @@ export default function App() {
               onClick={() => {
                 if (window.confirm('Begin a new night? This night — its truths, its dead, its record — ends now.')) {
                   dispatch({ type: 'night/reset' })
-                  setEntered(false)
+                  lobbyDispatch({ type: 'lobby/leave' })
+                  setScreen('title')
                 }
               }}
             >
@@ -70,11 +84,25 @@ export default function App() {
       )}
 
       <main>
-        {!entered ? (
+        {screen === 'title' ? (
           <TitleScreen
-            onBegin={() => setEntered(true)}
+            onBegin={() => setScreen('lobby')}
             onRules={() => setRulesOpen(true)}
           />
+        ) : screen === 'lobby' ? (
+          lobby.stage === 'home' ? (
+            <LobbyHome
+              state={lobby}
+              dispatch={lobbyDispatch}
+              onSingleScreen={() => setScreen('night')}
+            />
+          ) : (
+            <RoomScreen
+              state={lobby}
+              dispatch={lobbyDispatch}
+              onGather={() => setScreen('night')}
+            />
+          )
         ) : state.phase === 'gathering' ? (
           <Gathering state={state} dispatch={dispatch} onRules={() => setRulesOpen(true)} />
         ) : state.phase === 'truths' ? (

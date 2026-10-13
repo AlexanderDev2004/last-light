@@ -12,6 +12,9 @@ no accounts.
 
 The app follows the real rules of the game, phase by phase:
 
+0. **The lobby** — create a room and share its code, join with a code, or keep one
+   screen to yourselves. Rooms are local-only for now; cross-device sync and the
+   ready-up gate land in the lobby issues (#1–#6).
 1. **The gathering** — name the keeper of the dark, seat three to five survivors, and
    write each stack: **virtue, vice, moment**, and a **brink** written in secret. Choose
    which card sits on top; it burns first. Optionally record a final message per

@@ -135,3 +135,34 @@ export const mathRandom: Rng = (sides) => 1 + Math.floor(Math.random() * sides)
 
 let uid = 0
 export const newId = () => `${Date.now().toString(36)}${(uid++).toString(36)}`
+
+/* ---------- lobby room model (see the lobby issue: admin != GM) ---------- */
+
+export type MemberRole = 'admin' | 'member'
+
+export interface Member {
+  id: string
+  name: string
+  /** room ownership — separate from the in-game keeper role */
+  role: MemberRole
+  /** the in-game keeper; at most one, appointed by the admin */
+  isGm: boolean
+  ready: boolean
+  connected: boolean
+}
+
+export interface Room {
+  code: string
+  name: string
+  visibility: 'private' | 'public'
+  adminId: string
+  /** null = no keeper appointed yet */
+  gmMemberId: string | null
+  members: Member[]
+}
+
+/** 3-5 survivors plus the keeper may sit down for a night. */
+export const MIN_SURVIVORS = 3
+export const MAX_SURVIVORS = 5
+/** hard cap while seated in the room, so a night can always start */
+export const MAX_MEMBERS = MAX_SURVIVORS + 1
