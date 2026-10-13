@@ -2,24 +2,26 @@
  * The lobby: rooms, members, roles — as a pure state machine, separate from
  * the night's engine (rooms outlive nights and have their own lifecycle).
  *
- * This module is local-only for now: members other than the admin arrive
- * through `mockJoin` so the screens can be exercised end to end. The WebRTC
- * transport replaces the mock as the source of these same actions later,
- * without touching this reducer or the components.
+ * The transport (see lib/room-net.ts) feeds this reducer: the host applies
+ * members' wire actions locally and broadcasts snapshots; guests apply the
+ * host's snapshots as-is. The host is the creator (admin); admin != GM —
+ * the keeper is appointed separately.
  *
- * Rules for now (see the lobby issues):
+ * Rules (see the lobby issues):
  *  - the room creator is the admin; admin != GM — the keeper is appointed
  *  - rooms hold at most MAX_MEMBERS people so a night can always start
- *  - joining by code waits for the transport; the attempt is recorded
+ *  - joining is a stage, not an instant: knocking, then the host answers
  */
 
 import { MAX_MEMBERS, newId, type Member, type Room } from '../game/types'
 
 export interface LobbyState {
-  stage: 'home' | 'room'
+  stage: 'home' | 'joining' | 'room'
   room: Room | null
   /** the local user's member id once they are in a room */
   meId: string | null
+  /** while knocking: the code and name the join was attempted with */
+  pendingJoin: { code: string; name: string } | null
   /** a one-line message under the join form — wrong code, room full, … */
   notice: string | null
 }
@@ -27,12 +29,18 @@ export interface LobbyState {
 export type LobbyAction =
   | { type: 'lobby/create'; roomName: string; adminName: string; visibility: 'private' | 'public' }
   | { type: 'lobby/joinAttempt'; code: string; name: string }
+  | { type: 'lobby/joinFailed'; notice: string }
+  | { type: 'lobby/netState'; room: Room; selfToken: string }
+  | { type: 'lobby/peerJoin'; id: string; name: string }
+  | { type: 'lobby/peerLeave'; id: string }
+  | { type: 'lobby/rename'; id: string; name: string }
+  | { type: 'lobby/hostLost' }
   | { type: 'lobby/leave' }
   | { type: 'lobby/mockJoin'; name?: string }
   | { type: 'lobby/mockLeave' }
 
 export function initialLobby(): LobbyState {
-  return { stage: 'home', room: null, meId: null, notice: null }
+  return { stage: 'home', room: null, meId: null, pendingJoin: null, notice: null }
 }
 
 /** Room codes: six characters, no I/L/O/0/1 — readable aloud and over chat. */
@@ -63,16 +71,75 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
         gmMemberId: null,
         members: [admin],
       }
-      return { stage: 'room', room, meId: admin.id, notice: null }
+      return { stage: 'room', room, meId: admin.id, pendingJoin: null, notice: null }
     }
 
     case 'lobby/joinAttempt': {
       const code = action.code.trim().toUpperCase()
       if (!code) return { ...state, notice: 'Enter a room code first.' }
-      // No transport yet: no room can answer. The attempt is reported honestly.
+      // The transport takes over from here: it knocks on the room and either
+      // comes back with a snapshot (netState) or fails (joinFailed).
       return {
         ...state,
-        notice: `No room answers to ${code} yet — rooms sync across devices in a later update.`,
+        stage: 'joining',
+        pendingJoin: { code, name: action.name.trim() || 'A stranger' },
+        notice: null,
+      }
+    }
+
+    case 'lobby/joinFailed': {
+      return { ...initialLobby(), notice: action.notice }
+    }
+
+    case 'lobby/netState': {
+      const seated = action.room.members.some((m) => m.id === action.selfToken)
+      if (!seated) return state // the hook turns this into a joinFailed
+      return { stage: 'room', room: action.room, meId: action.selfToken, pendingJoin: null, notice: null }
+    }
+
+    case 'lobby/peerJoin': {
+      if (!state.room) return state
+      if (state.room.members.some((m) => m.id === action.id)) return state // duplicate swarm is the same guest
+      if (state.room.members.length >= MAX_MEMBERS) return state
+      const joined: Member = {
+        id: action.id,
+        name: action.name,
+        role: 'member',
+        isGm: false,
+        ready: false,
+        connected: true,
+      }
+      return { ...state, room: { ...state.room, members: [...state.room.members, joined] } }
+    }
+
+    case 'lobby/peerLeave': {
+      if (!state.room) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, connected: false } : m)),
+        },
+      }
+    }
+
+    case 'lobby/rename': {
+      if (!state.room) return state
+      const name = action.name.trim().slice(0, 24)
+      if (!name) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, name } : m)),
+        },
+      }
+    }
+
+    case 'lobby/hostLost': {
+      return {
+        ...initialLobby(),
+        notice: 'The keeper has left the room — it ended with their tab. (Admin migration arrives in a later update.)',
       }
     }
 

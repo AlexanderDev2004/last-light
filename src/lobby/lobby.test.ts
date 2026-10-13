@@ -53,16 +53,95 @@ describe('creating a room', () => {
 })
 
 describe('joining by code', () => {
-  it('reports honestly that no transport answers yet', () => {
+  it('moves to the joining stage and keeps the code and name', () => {
     let s = initialLobby()
     s = reducer(s, { type: 'lobby/joinAttempt', code: ' k7qp2m ', name: 'Bo' })
-    expect(s.stage).toBe('home')
-    expect(s.notice).toContain('K7QP2M')
+    expect(s.stage).toBe('joining')
+    expect(s.pendingJoin).toEqual({ code: 'K7QP2M', name: 'Bo' })
+    expect(s.notice).toBeNull()
+  })
+
+  it('falls back to a stranger name when none was given', () => {
+    const s = reducer(initialLobby(), { type: 'lobby/joinAttempt', code: 'K7QP2M', name: '   ' })
+    expect(s.pendingJoin?.name).toBe('A stranger')
   })
 
   it('asks for a code when none was entered', () => {
     const s = reducer(initialLobby(), { type: 'lobby/joinAttempt', code: '  ', name: 'Bo' })
+    expect(s.stage).toBe('home')
     expect(s.notice).toContain('Enter a room code')
+  })
+
+  it('is seated when the host snapshot carries the self token', () => {
+    let s = reducer(initialLobby(), { type: 'lobby/create', roomName: 'r', adminName: 'Mara', visibility: 'private' })
+    const hosted = s.room!
+    s = reducer(initialLobby(), { type: 'lobby/joinAttempt', code: hosted.code, name: 'Bo' })
+    s = reducer(s, { type: 'lobby/netState', room: hosted, selfToken: hosted.adminId })
+    expect(s.stage).toBe('room')
+    expect(s.meId).toBe(hosted.adminId)
+    expect(me(s)?.name).toBe('Mara')
+  })
+
+  it('waits while a snapshot does not seat the joiner and the room is not full', () => {
+    let s = reducer(initialLobby(), { type: 'lobby/create', roomName: 'r', adminName: 'Mara', visibility: 'private' })
+    const hosted = s.room!
+    s = reducer(initialLobby(), { type: 'lobby/joinAttempt', code: hosted.code, name: 'Bo' })
+    s = reducer(s, { type: 'lobby/netState', room: hosted, selfToken: 'bo-token' })
+    expect(s.stage).toBe('joining')
+  })
+
+  it('gives up with a notice when the join fails', () => {
+    let s = reducer(initialLobby(), { type: 'lobby/joinAttempt', code: 'K7QP2M', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/joinFailed', notice: 'No room answers to K7QP2M.' })
+    expect(s.stage).toBe('home')
+    expect(s.room).toBeNull()
+    expect(s.notice).toContain('K7QP2M')
+  })
+})
+
+describe('members arriving over the wire', () => {
+  const created = () =>
+    reducer(initialLobby(), { type: 'lobby/create', roomName: 'r', adminName: 'Mara', visibility: 'private' })
+
+  it('join as themselves, once per token even if both swarms announce them', () => {
+    let s = created()
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    expect(s.room?.members.map((m) => m.id)).toEqual([s.meId, 'bo-token'])
+    expect(s.room?.members[1]?.connected).toBe(true)
+  })
+
+  it('are refused when the room is already full', () => {
+    let s = created()
+    for (let i = 0; i < MAX_MEMBERS - 1; i++) {
+      s = reducer(s, { type: 'lobby/peerJoin', id: `t${i}`, name: `Guest ${i}` })
+    }
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'one-too-many', name: 'Latecomer' })
+    expect(s.room?.members.some((m) => m.id === 'one-too-many')).toBe(false)
+    expect(s.room?.members).toHaveLength(MAX_MEMBERS)
+  })
+
+  it('go dark on leave, without being struck from the ledger', () => {
+    let s = created()
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/peerLeave', id: 'bo-token' })
+    expect(s.room?.members[1]).toMatchObject({ id: 'bo-token', name: 'Bo', connected: false })
+  })
+
+  it('can rename themselves', () => {
+    let s = created()
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/rename', id: 'bo-token', name: '  Bogdan  ' })
+    expect(s.room?.members[1]?.name).toBe('Bogdan')
+  })
+
+  it('end with the host: hostLost clears the room and says so plainly', () => {
+    let s = created()
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/hostLost' })
+    expect(s.stage).toBe('home')
+    expect(s.room).toBeNull()
+    expect(s.notice).toContain('The keeper has left the room')
   })
 })
 

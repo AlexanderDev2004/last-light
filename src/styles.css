@@ -747,6 +747,20 @@
     to { opacity: 1; }
   }
 
+  /* the knocking dot: a flame-colored heartbeat while a room is sought */
+  .dot-pulse {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+    background: var(--flame);
+    animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 0.25; }
+    50% { opacity: 1; }
+  }
+
   .scroll-thin::-webkit-scrollbar {
     width: 8px;
   }
@@ -757,6 +771,7 @@
   @media (prefers-reduced-motion: reduce) {
     .candle-flame { animation: none; }
     .rec-dot { animation: none; }
+    .dot-pulse { animation: none; opacity: 0.6; }
     .rise, .ro-pop { animation: none; }
   }
 }
