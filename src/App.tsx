@@ -50,6 +50,15 @@ export default function App() {
     saveNight(state)
   }, [state])
 
+  // Both restart paths — the top bar and the epilogue — end the night here,
+  // clear any room, and return to the title so the lobby flow runs again.
+  function beginNewNight() {
+    if (!window.confirm('Begin a new night? This night — its truths, its dead, its record — ends now.')) return
+    dispatch({ type: 'night/reset' })
+    lobbyDispatch({ type: 'lobby/leave' })
+    setScreen('title')
+  }
+
   return (
     <div className={state.phase === 'laststand' || state.phase === 'epilogue' ? 'night-dark' : undefined}>
       {screen === 'night' && state.phase !== 'gathering' && (
@@ -66,17 +75,7 @@ export default function App() {
             <button type="button" className="btn-text" onClick={() => setRulesOpen(true)}>
               The rules
             </button>
-            <button
-              type="button"
-              className="btn-text danger"
-              onClick={() => {
-                if (window.confirm('Begin a new night? This night — its truths, its dead, its record — ends now.')) {
-                  dispatch({ type: 'night/reset' })
-                  lobbyDispatch({ type: 'lobby/leave' })
-                  setScreen('title')
-                }
-              }}
-            >
+            <button type="button" className="btn-text danger" onClick={beginNewNight}>
               New night
             </button>
           </span>
@@ -112,7 +111,7 @@ export default function App() {
         ) : state.phase === 'laststand' ? (
           <LastStand state={state} dispatch={dispatch} />
         ) : (
-          <Epilogue state={state} dispatch={dispatch} />
+          <Epilogue state={state} dispatch={dispatch} onNewNight={beginNewNight} />
         )}
       </main>
 
