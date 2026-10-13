@@ -113,12 +113,15 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     }
     const actionAct = room.makeAction('room-action')
     const stateAct = room.makeAction('room-state')
-    actionAct.onMessage = (data: unknown) => {
+    actionAct.onMessage = (data: unknown, peerId: unknown) => {
       const m = data as RoomWireAction
       if (closed || !m || typeof m.kind !== 'string') return
+      // the sender's wire id — the swarm prefix plus Trystero's peer id — is
+      // what onPeerJoin/onPeerLeave report, so the hook can tell who spoke
+      const from = `${prefix}${String(peerId ?? '')}`
       for (const cb of actionListeners) {
         try {
-          cb(m, prefix)
+          cb(m, from)
         } catch {
           // ignore
         }

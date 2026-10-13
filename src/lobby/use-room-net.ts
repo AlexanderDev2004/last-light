@@ -32,6 +32,18 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
   const lobbyRef = useRef(lobby)
   lobbyRef.current = lobby
 
+  /** Ends the transport and resets every ref that belongs to it. */
+  function teardown() {
+    window.clearInterval(heartbeatRef.current)
+    heartbeatRef.current = undefined
+    netRef.current?.close()
+    netRef.current = null
+    roleRef.current = null
+    wireTokensRef.current.clear()
+    lastBroadcastRef.current = ''
+    lastHostSeenRef.current = 0
+  }
+
   // open the transport for this stage (host on room-entry, guest while knocking)
   useEffect(() => {
     const isHost = lobby.stage === 'room' && lobby.room !== null && lobby.meId === lobby.room.adminId
@@ -62,18 +74,29 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       net.onAction((action, fromWireId) => {
         if (roleRef.current === 'host') {
           switch (action.kind) {
-            case 'join':
-            case 'rename':
+            case 'join': {
+              // a join binds this wire connection to the token it carries —
+              // from here on, this sender may only ever act as that token
+              if ([...wireTokensRef.current.values()].includes(action.token)) return
               wireTokensRef.current.set(fromWireId, action.token)
-              dispatch(
-                action.kind === 'join'
-                  ? { type: 'lobby/peerJoin', id: action.token, name: action.name }
-                  : { type: 'lobby/rename', id: action.token, name: action.name },
-              )
+              dispatch({ type: 'lobby/peerJoin', id: action.token, name: action.name })
               break
-            case 'leave':
-              dispatch({ type: 'lobby/peerLeave', id: action.token })
+            }
+            case 'rename': {
+              // a connection may only rename the member it joined as
+              const token = wireTokensRef.current.get(fromWireId)
+              if (!token || token !== action.token) return
+              dispatch({ type: 'lobby/rename', id: action.token, name: action.name })
               break
+            }
+            case 'leave': {
+              // likewise, a connection may only remove itself
+              const token = wireTokensRef.current.get(fromWireId)
+              if (!token || token !== action.token) return
+              wireTokensRef.current.delete(fromWireId)
+              dispatch({ type: 'lobby/peerLeave', id: token })
+              break
+            }
             case 'hello':
               break
           }
@@ -87,6 +110,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
 
       net.onState((state) => {
         if (roleRef.current !== 'guest') return
+        lastHostSeenRef.current = Date.now()
         const seated = state.room.members.some((m) => m.id === tokenRef.current)
         if (seated) {
           dispatch({ type: 'lobby/netState', room: state.room, selfToken: tokenRef.current })
@@ -132,8 +156,14 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       } else {
         heartbeatRef.current = window.setInterval(() => {
           const room = lobbyRef.current.room
-          if (room && Date.now() - lastHostSeenRef.current > HOST_SILENCE_MS) {
+          if (!room) {
+            // the room is gone from state (host lost, leave) — stop watching
+            teardown()
+            return
+          }
+          if (Date.now() - lastHostSeenRef.current > HOST_SILENCE_MS) {
             dispatch({ type: 'lobby/hostLost' })
+            teardown()
           }
         }, 3000)
       }
@@ -147,13 +177,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       const keep = lobby.stage === 'joining' && lobbyRef.current.stage === 'room'
       if (keep) return
       active = false
-      window.clearInterval(heartbeatRef.current)
-      heartbeatRef.current = undefined
-      netRef.current?.close()
-      netRef.current = null
-      roleRef.current = null
-      wireTokensRef.current.clear()
-      lastBroadcastRef.current = ''
+      teardown()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lobby.stage])
@@ -194,7 +218,10 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     if (roleRef.current === 'guest' && lobby.meId) {
       netRef.current?.sendAction({ kind: 'leave', token: lobby.meId })
     }
+    // the room is over for this tab: end the transport now, not on the next
+    // effect pass, so nothing keeps knocking on a dead room afterwards
     dispatch({ type: 'lobby/leave' })
+    teardown()
   }
 
   return { renameSelf, leaveRoom }
