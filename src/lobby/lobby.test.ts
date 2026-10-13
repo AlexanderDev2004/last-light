@@ -141,7 +141,7 @@ describe('members arriving over the wire', () => {
     s = reducer(s, { type: 'lobby/hostLost' })
     expect(s.stage).toBe('home')
     expect(s.room).toBeNull()
-    expect(s.notice).toContain('The keeper has left the room')
+    expect(s.notice).toContain('The keeper left and no one remained')
   })
 })
 
@@ -200,5 +200,90 @@ describe('leaving a room', () => {
     s = reducer(s, { type: 'lobby/mockJoin' })
     s = reducer(s, { type: 'lobby/leave' })
     expect(s).toEqual(initialLobby())
+  })
+})
+
+describe('admin powers', () => {
+  const created = () =>
+    reducer(initialLobby(), { type: 'lobby/create', roomName: 'r', adminName: 'Mara', visibility: 'private' })
+
+  const withGuest = () => {
+    const s = created()
+    return reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+  }
+
+  it('kick strikes the member from the room', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/peerKick', id: 'bo-token' })
+    expect(s.room?.members.map((m) => m.id)).toEqual([state.meId])
+  })
+
+  it("kick empties the keeper's seat when the keeper was removed", () => {
+    const state = withGuest()
+    let s = reducer(state, { type: 'lobby/peerAppointGm', gmMemberId: 'bo-token' })
+    s = reducer(s, { type: 'lobby/peerKick', id: 'bo-token' })
+    expect(s.room?.gmMemberId).toBeNull()
+    expect(s.room?.members.some((m) => m.isGm)).toBe(false)
+  })
+
+  it('kick of an unknown id strikes no one', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/peerKick', id: 'never-seated' })
+    expect(s.room?.members.map((m) => m.id)).toEqual(state.room?.members.map((m) => m.id))
+  })
+
+  it('appoints a keeper and appointing null empties the seat', () => {
+    const state = withGuest()
+    let s = reducer(state, { type: 'lobby/peerAppointGm', gmMemberId: 'bo-token' })
+    expect(s.room?.gmMemberId).toBe('bo-token')
+    expect(s.room?.members.find((m) => m.id === 'bo-token')?.isGm).toBe(true)
+    expect(s.room?.members.find((m) => m.id === state.meId)?.isGm).toBe(false)
+    s = reducer(s, { type: 'lobby/peerAppointGm', gmMemberId: null })
+    expect(s.room?.gmMemberId).toBeNull()
+    expect(s.room?.members.some((m) => m.isGm)).toBe(false)
+  })
+
+  it('a keeper appointment clamps to a seated member — the seat empties instead', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/peerAppointGm', gmMemberId: 'never-seated' })
+    expect(s.room?.gmMemberId).toBeNull()
+    expect(s.room?.members.some((m) => m.isGm)).toBe(false)
+  })
+
+  it('a member raises their hand for the seat, and the admin sees the flag', () => {
+    const state = withGuest()
+    let s = reducer(state, { type: 'lobby/peerToggleGmInterest', id: 'bo-token' })
+    expect(s.room?.members.find((m) => m.id === 'bo-token')?.wantsGm).toBe(true)
+    s = reducer(s, { type: 'lobby/peerToggleGmInterest', id: 'bo-token' })
+    expect(s.room?.members.find((m) => m.id === 'bo-token')?.wantsGm).toBe(false)
+  })
+
+  it('the local user raises their own hand with toggleGmInterest', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/toggleGmInterest' })
+    expect(s.room?.members.find((m) => m.id === state.meId)?.wantsGm).toBe(true)
+  })
+
+  it('an admin change moves the role and says who keeps the room now', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/adminChanged', newAdminId: 'bo-token' })
+    expect(s.room?.adminId).toBe('bo-token')
+    expect(s.room?.members.find((m) => m.id === 'bo-token')?.role).toBe('admin')
+    expect(s.room?.members.find((m) => m.id === state.meId)?.role).toBe('member')
+    expect(s.notice).toContain('Bo now keeps the room')
+  })
+
+  it('an admin change to a member who is not seated changes nothing', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/adminChanged', newAdminId: 'ghost' })
+    expect(s).toBe(state)
+  })
+
+  it('being kicked returns the guest home with a plain notice', () => {
+    const state = withGuest()
+    const s = reducer(state, { type: 'lobby/kicked' })
+    expect(s.stage).toBe('home')
+    expect(s.room).toBeNull()
+    expect(s.notice).toContain('removed from the room')
   })
 })

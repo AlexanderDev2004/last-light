@@ -5,19 +5,27 @@ import { MAX_SURVIVORS, MIN_SURVIVORS } from '../game/types'
 
 /**
  * A room as it stands before the night: who is seated, who keeps it, and the
- * code that lets others in. Ready-up and the start of the night arrive with
- * the ready gate; until then the admin can move everyone to the gathering.
+ * code that lets others in. The admin removes members and hands out the
+ * keeper's seat; anyone may raise their hand for it. Ready-up and the start
+ * of the night arrive with the ready gate; until then the admin can move
+ * everyone to the gathering.
  */
 export default function RoomScreen({
   state,
   onRename,
   onLeave,
   onGather,
+  onKick,
+  onAppointGm,
+  onToggleGmInterest,
 }: {
   state: LobbyState
   onRename: (name: string) => void
   onLeave: () => void
   onGather: () => void
+  onKick: (id: string) => void
+  onAppointGm: (gmMemberId: string | null) => void
+  onToggleGmInterest: () => void
 }) {
   const room = state.room!
   const self = me(state)
@@ -113,8 +121,47 @@ export default function RoomScreen({
                 )}
               </span>
               <span className="flex items-center gap-3">
+                {/* the keeper's seat: the admin takes it, takes it back, or
+                    hands it to a member who raised their hand for it */}
+                {admin && self && m.id === self.id && !m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(m.id)}>
+                    take the keeper's seat
+                  </button>
+                )}
+                {admin && self && m.id === self.id && m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(null)}>
+                    leave the seat
+                  </button>
+                )}
+                {admin && self && m.id !== self.id && m.wantsGm && !m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(m.id)}>
+                    make keeper
+                  </button>
+                )}
+                {admin && self && m.id !== self.id && m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(null)}>
+                    take the seat back
+                  </button>
+                )}
+                {self && m.id === self.id && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={onToggleGmInterest}>
+                    {m.wantsGm ? 'withdraw my hand' : 'I want to keep the night'}
+                  </button>
+                )}
+                {admin && self && m.id !== self.id && (
+                  <button
+                    type="button"
+                    className="btn-text danger !text-[0.8rem]"
+                    onClick={() => {
+                      if (window.confirm(`Remove ${m.name} from the room?`)) onKick(m.id)
+                    }}
+                  >
+                    kick
+                  </button>
+                )}
                 {m.role === 'admin' && <span className="label m-0 text-[var(--text-primary)]">admin</span>}
                 {m.isGm && <span className="label m-0 text-[var(--flame)]">keeper</span>}
+                {m.wantsGm && !m.isGm && <span className="label m-0">wants the seat</span>}
                 {!m.connected && <span className="label m-0">gone dark</span>}
                 <span
                   role="img"
@@ -131,7 +178,7 @@ export default function RoomScreen({
           ))}
         </ul>
         <p className="mt-3 mb-0 text-[0.85rem] leading-6 text-[var(--text-muted)]" style={{ maxWidth: '44rem' }}>
-          No keeper yet — the admin keeps the night or hands the seat to a member who wants it.
+          The admin keeps the night or hands the seat to a member who wants it — raise your hand on your own row.
           A night needs {MIN_SURVIVORS}–{MAX_SURVIVORS} survivors plus the keeper.
         </p>
       </section>

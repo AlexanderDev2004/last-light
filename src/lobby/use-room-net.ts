@@ -2,10 +2,18 @@ import { useEffect, useRef } from 'react'
 import { MAX_MEMBERS, newId } from '../game/types'
 import { openRoomNet, type RoomNet } from '../lib/room-net'
 import type { LobbyAction, LobbyState } from './lobby'
+import { resolveHostAction } from './host-rules'
 
 const JOIN_TIMEOUT_MS = 10_000
 /** a guest ends the room after this much silence from the host */
 const HOST_SILENCE_MS = 15_000
+/** after the admin drops, guests wait this long for the new host's first hello */
+const ADMIN_TAKEOVER_GRACE_MS = 8_000
+
+/** wire ids are `<swarm>:<peerId>`; the peer id is shared across swarms */
+function peerOf(wireId: string): string {
+  return wireId.slice(wireId.indexOf(':') + 1)
+}
 
 /**
  * Wires the lobby reducer to the WebRTC transport.
@@ -15,19 +23,26 @@ const HOST_SILENCE_MS = 15_000
  * snapshots as-is and speak only through wire actions. A guest's member id
  * is its own token, so it recognizes itself in the snapshots.
  *
- * The room lives in the host's tab: when it closes, guests see the host's
- * connection drop and the room ends (admin migration is a later issue).
+ * The room lives in the host's tab. The admin and the host are the same
+ * member: the room's state lives in the admin's tab. When that tab closes,
+ * the longest-tenured member still at the table takes over as the new admin
+ * and host; everyone else waits briefly for the new host to speak before
+ * giving the room up for lost.
  */
 export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void) {
   const netRef = useRef<RoomNet | null>(null)
   const roleRef = useRef<'host' | 'guest' | null>(null)
   // Guests identify themselves with this token; the host keeps its admin id.
   const tokenRef = useRef(newId())
-  /** wireId → member token, learned from the wire actions themselves */
+  /** peerId → member token, learned from the join each peer carried */
   const wireTokensRef = useRef(new Map<string, string>())
+  /** how many swarms each peer is currently present on */
+  const peerSwarmsRef = useRef(new Map<string, number>())
   const lastBroadcastRef = useRef('')
   const heartbeatRef = useRef<number | undefined>(undefined)
   const lastHostSeenRef = useRef(0)
+  /** admin whose loss we are waiting out the takeover grace for */
+  const pendingAdminLossRef = useRef<string | null>(null)
 
   const lobbyRef = useRef(lobby)
   lobbyRef.current = lobby
@@ -40,8 +55,10 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     netRef.current = null
     roleRef.current = null
     wireTokensRef.current.clear()
+    peerSwarmsRef.current.clear()
     lastBroadcastRef.current = ''
     lastHostSeenRef.current = 0
+    pendingAdminLossRef.current = null
   }
 
   // open the transport for this stage (host on room-entry, guest while knocking)
@@ -71,49 +88,101 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       }
       netRef.current = net
 
+      /** The admin's connection dropped: the longest-tenured member takes over. */
+      function handleAdminGone() {
+        const room = lobbyRef.current.room
+        if (!room) return
+        const next = room.members.find((m) => m.connected && m.id !== room.adminId)
+        if (!next) {
+          dispatch({ type: 'lobby/hostLost' })
+          teardown()
+          return
+        }
+        if (next.id === tokenRef.current) {
+          // the room is mine now — I am the longest-tenured member still seated
+          pendingAdminLossRef.current = null
+          dispatch({ type: 'lobby/adminChanged', newAdminId: tokenRef.current })
+          roleRef.current = 'host'
+          window.clearInterval(heartbeatRef.current)
+          heartbeatRef.current = window.setInterval(() => {
+            netRef.current?.sendAction({ kind: 'hello', token: tokenRef.current })
+          }, 5000)
+          netRef.current?.sendAction({ kind: 'hello', token: tokenRef.current })
+        } else if (pendingAdminLossRef.current !== room.adminId) {
+          // wait for the new host's first hello; the silence rule ends the
+          // room if none comes within the grace window
+          pendingAdminLossRef.current = room.adminId
+          lastHostSeenRef.current = Date.now() - HOST_SILENCE_MS + ADMIN_TAKEOVER_GRACE_MS
+        } else if (Date.now() - lastHostSeenRef.current > HOST_SILENCE_MS) {
+          // the grace window passed and no new host spoke — the room is over
+          dispatch({ type: 'lobby/hostLost' })
+          teardown()
+        }
+      }
+
       net.onAction((action, fromWireId) => {
         if (roleRef.current === 'host') {
-          switch (action.kind) {
-            case 'join': {
-              // a join binds this wire connection to the token it carries —
-              // from here on, this sender may only ever act as that token
-              if ([...wireTokensRef.current.values()].includes(action.token)) return
-              wireTokensRef.current.set(fromWireId, action.token)
-              dispatch({ type: 'lobby/peerJoin', id: action.token, name: action.name })
-              break
+          const peer = peerOf(fromWireId)
+          if (action.kind === 'join') {
+            // a join binds this peer to the token it carries — from here on,
+            // this peer may only ever act as that token, and no other peer
+            // may act as it. The same guest arrives on both swarms, so a
+            // token seen elsewhere never blocks a fresh peer's binding.
+            const bound = wireTokensRef.current.get(peer)
+            if (bound && bound !== action.token) return
+            wireTokensRef.current.set(peer, action.token)
+            const joined = resolveHostAction(lobbyRef.current.room, undefined, action)
+            if (joined) dispatch(joined)
+            return
+          }
+          const senderToken = wireTokensRef.current.get(peer)
+          const applied = resolveHostAction(lobbyRef.current.room, senderToken, action)
+          if (applied) {
+            if (applied.type === 'lobby/peerLeave' || applied.type === 'lobby/peerKick') {
+              // forget the removed member's peer bindings
+              for (const [p, t] of wireTokensRef.current) {
+                if (t === applied.id) {
+                  wireTokensRef.current.delete(p)
+                  peerSwarmsRef.current.delete(p)
+                }
+              }
             }
-            case 'rename': {
-              // a connection may only rename the member it joined as
-              const token = wireTokensRef.current.get(fromWireId)
-              if (!token || token !== action.token) return
-              dispatch({ type: 'lobby/rename', id: action.token, name: action.name })
-              break
-            }
-            case 'leave': {
-              // likewise, a connection may only remove itself
-              const token = wireTokensRef.current.get(fromWireId)
-              if (!token || token !== action.token) return
-              wireTokensRef.current.delete(fromWireId)
-              dispatch({ type: 'lobby/peerLeave', id: token })
-              break
-            }
-            case 'hello':
-              break
+            dispatch(applied)
+          } else {
+            console.debug('[room-net] action refused by the host rules:', action.kind)
           }
         } else if (action.kind === 'hello') {
-          // guests learn which wire connection carries the host, and that it
+          // guests learn which peer connection carries the host, and that it
           // was alive this instant
-          wireTokensRef.current.set(fromWireId, action.token)
+          wireTokensRef.current.set(peerOf(fromWireId), action.token)
           lastHostSeenRef.current = Date.now()
+          if (pendingAdminLossRef.current && pendingAdminLossRef.current !== action.token) {
+            pendingAdminLossRef.current = null // the new host is speaking
+          }
         }
       })
 
       net.onState((state) => {
         if (roleRef.current !== 'guest') return
         lastHostSeenRef.current = Date.now()
+        if (pendingAdminLossRef.current && pendingAdminLossRef.current !== state.room.adminId) {
+          pendingAdminLossRef.current = null // the new host is broadcasting
+        }
+        const prev = lobbyRef.current
+        const wasSeated = Boolean(prev.stage === 'room' && prev.room?.members.some((m) => m.id === tokenRef.current))
+        const prevAdmin = prev.room?.adminId
         const seated = state.room.members.some((m) => m.id === tokenRef.current)
         if (seated) {
           dispatch({ type: 'lobby/netState', room: state.room, selfToken: tokenRef.current })
+          if (prevAdmin !== undefined && state.room.adminId !== prevAdmin) {
+            // the new host's first snapshot carries the new admin; surface it
+            dispatch({ type: 'lobby/adminChanged', newAdminId: state.room.adminId })
+          }
+        } else if (wasSeated) {
+          // we sat at this table and the latest snapshot no longer lists us;
+          // the room is over for this tab, so drop the transport too
+          dispatch({ type: 'lobby/kicked' })
+          teardown()
         } else if (state.room.members.length >= MAX_MEMBERS) {
           dispatch({ type: 'lobby/joinFailed', notice: 'The room is full — at most six can sit at the table.' })
         }
@@ -121,8 +190,12 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       })
 
       net.onPeerJoin((wireId) => {
+        // the same physical peer arrives on both swarms; count them so a
+        // single swarm's leave doesn't mark the member gone dark
+        const peer = peerOf(wireId)
+        peerSwarmsRef.current.set(peer, (peerSwarmsRef.current.get(peer) ?? 0) + 1)
         if (roleRef.current === 'host') {
-          // greet the newcomer so guests know which wire connection is the
+          // greet the newcomer so guests know which peer connection is the
           // host's (they watch it to notice the room dying), and answer with
           // a snapshot even if nothing in the room changed to broadcast on
           net.sendAction({ kind: 'hello', token: lobbyRef.current.meId ?? '' })
@@ -132,19 +205,26 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
           const pending = lobbyRef.current.pendingJoin
           if (pending) net.sendAction({ kind: 'join', token: tokenRef.current, name: pending.name })
         }
-        void wireId
       })
 
       net.onPeerLeave((wireId) => {
-        const token = wireTokensRef.current.get(wireId)
+        const peer = peerOf(wireId)
+        const remaining = (peerSwarmsRef.current.get(peer) ?? 1) - 1
+        if (remaining > 0) {
+          peerSwarmsRef.current.set(peer, remaining)
+          return // the peer is still present on its other swarm
+        }
+        peerSwarmsRef.current.delete(peer)
+        const token = wireTokensRef.current.get(peer)
         if (!token) return
-        wireTokensRef.current.delete(wireId)
+        wireTokensRef.current.delete(peer)
         if (roleRef.current === 'host') {
           dispatch({ type: 'lobby/peerLeave', id: token })
         } else if (token === lobbyRef.current.room?.adminId) {
-          dispatch({ type: 'lobby/hostLost' })
+          handleAdminGone()
         }
       })
+
       // The heartbeat: the host says hello every few seconds; a guest who
       // stops hearing it knows the room died with the host's tab — no
       // signaling timeout required.
@@ -162,8 +242,9 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
             return
           }
           if (Date.now() - lastHostSeenRef.current > HOST_SILENCE_MS) {
-            dispatch({ type: 'lobby/hostLost' })
-            teardown()
+            // the host's silence means the admin's tab is gone: either a
+            // member takes the room over, or it ends
+            handleAdminGone()
           }
         }, 3000)
       }
@@ -224,5 +305,27 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     teardown()
   }
 
-  return { renameSelf, leaveRoom }
+  /** The admin removes a member from the room. */
+  function kickMember(id: string) {
+    const meId = lobby.meId
+    if (!meId || !lobby.room || lobby.room.adminId !== meId) return
+    dispatch({ type: 'lobby/peerKick', id })
+  }
+
+  /** The admin seats a member on the keeper's seat; null empties the seat. */
+  function appointGm(gmMemberId: string | null) {
+    const meId = lobby.meId
+    if (!meId || !lobby.room || lobby.room.adminId !== meId) return
+    dispatch({ type: 'lobby/peerAppointGm', gmMemberId })
+  }
+
+  /** Raise or lower your own hand for the keeper's seat. */
+  function toggleGmInterest() {
+    const meId = lobby.meId
+    if (!meId) return
+    dispatch({ type: 'lobby/toggleGmInterest' })
+    if (roleRef.current === 'guest') netRef.current?.sendAction({ kind: 'toggleGmInterest', token: meId })
+  }
+
+  return { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest }
 }

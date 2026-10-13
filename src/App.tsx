@@ -47,7 +47,7 @@ export default function App() {
     state.phase !== 'gathering' || state.gmName !== '' ? 'night' : 'title',
   )
   const [rulesOpen, setRulesOpen] = useState(false)
-  const { renameSelf, leaveRoom } = useRoomNet(lobby, lobbyDispatch)
+  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest } = useRoomNet(lobby, lobbyDispatch)
 
   useEffect(() => {
     saveNight(state)
@@ -111,6 +111,9 @@ export default function App() {
               onRename={renameSelf}
               onLeave={leaveRoom}
               onGather={() => setScreen('night')}
+              onKick={kickMember}
+              onAppointGm={appointGm}
+              onToggleGmInterest={toggleGmInterest}
             />
           )
         ) : state.phase === 'gathering' ? (

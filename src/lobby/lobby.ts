@@ -34,7 +34,14 @@ export type LobbyAction =
   | { type: 'lobby/peerJoin'; id: string; name: string }
   | { type: 'lobby/peerLeave'; id: string }
   | { type: 'lobby/rename'; id: string; name: string }
+  | { type: 'lobby/peerToggleGmInterest'; id: string }
+  | { type: 'lobby/peerKick'; id: string }
+  | { type: 'lobby/peerAppointGm'; gmMemberId: string | null }
   | { type: 'lobby/hostLost' }
+  | { type: 'lobby/kicked' }
+  | { type: 'lobby/adminChanged'; newAdminId: string }
+  | { type: 'lobby/toggleGmInterest' }
+  | { type: 'lobby/gmChanged'; gmMemberId: string | null }
   | { type: 'lobby/leave' }
   | { type: 'lobby/mockJoin'; name?: string }
   | { type: 'lobby/mockLeave' }
@@ -53,7 +60,7 @@ export function generateCode(rng: () => number = Math.random): string {
 }
 
 function member(name: string, role: Member['role']): Member {
-  return { id: newId(), name, role, isGm: false, ready: false, connected: true }
+  return { id: newId(), name, role, isGm: false, wantsGm: false, ready: false, connected: true }
 }
 
 /** Names mock members arrive under until the transport exists. */
@@ -106,6 +113,7 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
         name: action.name,
         role: 'member',
         isGm: false,
+        wantsGm: false,
         ready: false,
         connected: true,
       }
@@ -136,10 +144,91 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
       }
     }
 
+    case 'lobby/peerToggleGmInterest': {
+      if (!state.room) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, wantsGm: !m.wantsGm } : m)),
+        },
+      }
+    }
+
+    case 'lobby/peerKick': {
+      if (!state.room) return state
+      // the keeper's seat empties with the member who held it
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          gmMemberId: state.room.gmMemberId === action.id ? null : state.room.gmMemberId,
+          members: state.room.members.filter((m) => m.id !== action.id),
+        },
+      }
+    }
+
+    case 'lobby/peerAppointGm': {
+      if (!state.room) return state
+      const gmMemberId = state.room.members.some((m) => m.id === action.gmMemberId) ? action.gmMemberId : null
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          gmMemberId,
+          members: state.room.members.map((m) => ({ ...m, isGm: m.id === gmMemberId })),
+        },
+      }
+    }
+
     case 'lobby/hostLost': {
       return {
         ...initialLobby(),
-        notice: 'The keeper has left the room — it ended with their tab. (Admin migration arrives in a later update.)',
+        notice: 'The keeper left and no one remained to keep the room — it has ended.',
+      }
+    }
+
+    case 'lobby/kicked': {
+      return { ...initialLobby(), notice: 'You were removed from the room by the admin.' }
+    }
+
+    case 'lobby/adminChanged': {
+      if (!state.room || !state.room.members.some((m) => m.id === action.newAdminId)) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          adminId: action.newAdminId,
+          members: state.room.members.map((m) => ({ ...m, role: m.id === action.newAdminId ? 'admin' : 'member' })),
+        },
+        notice: `${state.room.members.find((m) => m.id === action.newAdminId)?.name ?? 'A member'} now keeps the room.`,
+      }
+    }
+
+    case 'lobby/toggleGmInterest': {
+      if (!state.room || !state.meId) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) =>
+            m.id === state.meId ? { ...m, wantsGm: !m.wantsGm } : m,
+          ),
+        },
+      }
+    }
+
+    case 'lobby/gmChanged': {
+      if (!state.room) return state
+      // exactly one keeper, or none — an id that is not seated clears the seat
+      const gmMemberId = state.room.members.some((m) => m.id === action.gmMemberId) ? action.gmMemberId : null
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          gmMemberId,
+          members: state.room.members.map((m) => ({ ...m, isGm: m.id === gmMemberId })),
+        },
       }
     }
 

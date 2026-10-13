@@ -34,17 +34,23 @@ const NOSTR_RELAYS = [
   'wss://relay.snort.social',
 ]
 
-/** What members send the host; the host validates and spreads the new state. */
+/** What members send the host; the host validates and spreads the new state.
+ *  `mid` is the sending tab's message id: the two swarms deliver the same
+ *  logical message twice, and the receiver keeps only the first copy. */
 export type RoomWireAction =
-  | { kind: 'join'; token: string; name: string }
-  | { kind: 'rename'; token: string; name: string }
-  | { kind: 'leave'; token: string }
-  | { kind: 'hello'; token: string }
+  | { kind: 'join'; token: string; name: string; mid?: string }
+  | { kind: 'rename'; token: string; name: string; mid?: string }
+  | { kind: 'leave'; token: string; mid?: string }
+  | { kind: 'toggleGmInterest'; token: string; mid?: string }
+  | { kind: 'kick'; token: string; target: string; mid?: string }
+  | { kind: 'appointGm'; token: string; gmMemberId: string | null; mid?: string }
+  | { kind: 'hello'; token: string; mid?: string }
 
 /** The host's authoritative room, broadcast on every change. */
 export interface RoomWireState {
   kind: 'state'
   room: Room
+  mid?: string
 }
 
 export interface RoomNet {
@@ -76,6 +82,22 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
   const joinListeners = new Set<(wireId: string) => void>()
   const leaveListeners = new Set<(wireId: string) => void>()
   let closed = false
+
+  /** Both swarms deliver the same logical message; keep only the first copy. */
+  const seenMessages = new Map<string, number>()
+  function isDuplicate(mid?: string): boolean {
+    if (!mid) return false
+    const now = Date.now()
+    if (seenMessages.size > 500) {
+      for (const [id, at] of seenMessages) if (now - at > 60_000) seenMessages.delete(id)
+    }
+    if (seenMessages.has(mid)) return true
+    seenMessages.set(mid, now)
+    return false
+  }
+
+  const newMessageId = () =>
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
 
   const emit = <T>(set: Set<(v: T) => void>, value: T) => {
     for (const cb of set) {
@@ -113,12 +135,16 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     }
     const actionAct = room.makeAction('room-action')
     const stateAct = room.makeAction('room-state')
-    actionAct.onMessage = (data: unknown, peerId: unknown) => {
+    actionAct.onMessage = (data: unknown, ctx: unknown) => {
       const m = data as RoomWireAction
       if (closed || !m || typeof m.kind !== 'string') return
-      // the sender's wire id — the swarm prefix plus Trystero's peer id — is
-      // what onPeerJoin/onPeerLeave report, so the hook can tell who spoke
-      const from = `${prefix}${String(peerId ?? '')}`
+      if (isDuplicate(m.mid)) return
+      // trystero 0.25 hands the second callback argument a MessageContext
+      // ({ peerId }); older releases passed the raw id string
+      const peerId = typeof ctx === 'string' ? ctx : (ctx as { peerId?: string } | null)?.peerId ?? ''
+      // the sender's wire id — the swarm prefix plus the peer id — is what
+      // onPeerJoin/onPeerLeave report, so the hook can tell who spoke
+      const from = `${prefix}${peerId}`
       for (const cb of actionListeners) {
         try {
           cb(m, from)
@@ -127,9 +153,12 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
         }
       }
     }
-    stateAct.onMessage = (data: unknown) => {
+    stateAct.onMessage = (data: unknown, ctx: unknown) => {
       const m = data as RoomWireState
-      if (!closed && m?.kind === 'state' && m.room) emit(stateListeners, m)
+      if (closed || !m || m?.kind !== 'state' || !m.room) return
+      if (isDuplicate(m.mid)) return
+      void ctx
+      emit(stateListeners, m)
     }
     room.onPeerJoin = (id: string) => {
       if (!closed) emit(joinListeners, `${prefix}${id}`)
@@ -154,10 +183,11 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
 
   return {
     sendAction(action) {
-      for (const w of wires) w.sendAction(action)
+      const msg = { ...action, mid: newMessageId() }
+      for (const w of wires) w.sendAction(msg)
     },
     sendState(room) {
-      const state: RoomWireState = { kind: 'state', room }
+      const state: RoomWireState = { kind: 'state', room, mid: newMessageId() }
       for (const w of wires) w.sendState(state)
     },
     onAction(cb) {

@@ -147,6 +147,8 @@ export interface Member {
   role: MemberRole
   /** the in-game keeper; at most one, appointed by the admin */
   isGm: boolean
+  /** flagged by the member; the admin may hand the keeper's seat to any of these */
+  wantsGm: boolean
   ready: boolean
   connected: boolean
 }
