@@ -10,10 +10,12 @@ export default function LobbyHome({
   state,
   dispatch,
   onSingleScreen,
+  onBack,
 }: {
   state: LobbyState
   dispatch: (action: LobbyAction) => void
   onSingleScreen: () => void
+  onBack: () => void
 }) {
   const [roomName, setRoomName] = useState('')
   const [adminName, setAdminName] = useState('')
@@ -22,7 +24,12 @@ export default function LobbyHome({
 
   return (
     <div className="wrap rise" style={{ paddingTop: 'clamp(2rem, 6vh, 4rem)', paddingBottom: '5rem' }}>
-      <p className="label m-0">The lobby</p>
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="label m-0">The lobby</p>
+        <button type="button" className="btn-text" onClick={onBack}>
+          &larr; back to the title
+        </button>
+      </div>
       <h1 className="ritual m-0 mt-2 text-[clamp(1.6rem,4vw,2.5rem)]">Gather the table</h1>
       <p className="prose-measure mt-4 text-[0.95rem] leading-7 text-[var(--text-secondary)]">
         Make a room and share its code, or join one you were given. Three to five survivors

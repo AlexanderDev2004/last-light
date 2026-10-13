@@ -94,6 +94,7 @@ export default function App() {
               state={lobby}
               dispatch={lobbyDispatch}
               onSingleScreen={() => setScreen('night')}
+              onBack={() => setScreen('title')}
             />
           ) : (
             <RoomScreen
