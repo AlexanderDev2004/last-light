@@ -111,6 +111,19 @@ describe('members arriving over the wire', () => {
     expect(s.room?.members[1]?.connected).toBe(true)
   })
 
+  it('rejoin marks a dropped member connected again', () => {
+    let s = created()
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/peerLeave', id: 'bo-token' })
+    expect(s.room?.members[1]?.connected).toBe(false)
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    expect(s.room?.members[1]?.connected).toBe(true)
+    // the duplicate delivery of a seated member changes nothing
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    expect(s.room?.members).toHaveLength(2)
+    expect(s.room?.members[1]?.connected).toBe(true)
+  })
+
   it('are refused when the room is already full', () => {
     let s = created()
     for (let i = 0; i < MAX_MEMBERS - 1; i++) {

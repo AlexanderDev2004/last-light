@@ -125,11 +125,16 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
           const peer = peerOf(fromWireId)
           if (action.kind === 'join') {
             // a join binds this peer to the token it carries — from here on,
-            // this peer may only ever act as that token, and no other peer
-            // may act as it. The same guest arrives on both swarms, so a
-            // token seen elsewhere never blocks a fresh peer's binding.
+            // this peer may only ever act as that token. A token already
+            // bound to a different live peer is refused: a snapshot tells
+            // every peer every token, so a late joiner could otherwise claim
+            // a seated member's identity. The member's own rejoin passes,
+            // because their drop removed the old binding; the same guest's
+            // second swarm passes, because the peer id is shared.
             const bound = wireTokensRef.current.get(peer)
             if (bound && bound !== action.token) return
+            const owner = [...wireTokensRef.current.entries()].find(([p, t]) => t === action.token && p !== peer)
+            if (owner) return
             wireTokensRef.current.set(peer, action.token)
             const joined = resolveHostAction(lobbyRef.current.room, undefined, action)
             if (joined) dispatch(joined)
@@ -162,8 +167,12 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
         }
       })
 
-      net.onState((state) => {
+      net.onState((state, fromWireId) => {
         if (roleRef.current !== 'guest') return
+        // only the peer our hello records hold the admin's token may
+        // broadcast room state — anyone else is ignored, host-aliveness
+        // included
+        if (wireTokensRef.current.get(peerOf(fromWireId)) !== state.adminToken) return
         lastHostSeenRef.current = Date.now()
         if (pendingAdminLossRef.current && pendingAdminLossRef.current !== state.room.adminId) {
           pendingAdminLossRef.current = null // the new host is broadcasting
@@ -177,6 +186,10 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
           if (prevAdmin !== undefined && state.room.adminId !== prevAdmin) {
             // the new host's first snapshot carries the new admin; surface it
             dispatch({ type: 'lobby/adminChanged', newAdminId: state.room.adminId })
+            // the new host inherited no peer bindings — reannounce so it can
+            // authenticate our later rename, leave, and GM-interest actions
+            const self = state.room.members.find((m) => m.id === tokenRef.current)
+            if (self) net.sendAction({ kind: 'join', token: tokenRef.current, name: self.name })
           }
         } else if (wasSeated) {
           // we sat at this table and the latest snapshot no longer lists us;
@@ -200,7 +213,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
           // a snapshot even if nothing in the room changed to broadcast on
           net.sendAction({ kind: 'hello', token: lobbyRef.current.meId ?? '' })
           const room = lobbyRef.current.room
-          if (room) net.sendState(room)
+          if (room) net.sendState(room, lobbyRef.current.meId ?? '')
         } else if (roleRef.current === 'guest') {
           const pending = lobbyRef.current.pendingJoin
           if (pending) net.sendAction({ kind: 'join', token: tokenRef.current, name: pending.name })
@@ -283,8 +296,8 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     const json = JSON.stringify(lobby.room)
     if (json === lastBroadcastRef.current) return
     lastBroadcastRef.current = json
-    netRef.current.sendState(lobby.room)
-  }, [lobby.stage, lobby.room])
+    netRef.current.sendState(lobby.room, lobby.meId ?? '')
+  }, [lobby.stage, lobby.room, lobby.meId])
 
   /** The local user renames themselves; guests carry it to the host. */
   function renameSelf(name: string) {

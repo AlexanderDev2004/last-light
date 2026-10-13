@@ -46,20 +46,24 @@ export type RoomWireAction =
   | { kind: 'appointGm'; token: string; gmMemberId: string | null; mid?: string }
   | { kind: 'hello'; token: string; mid?: string }
 
-/** The host's authoritative room, broadcast on every change. */
+/** The host's authoritative room, broadcast on every change. `adminToken`
+ *  authenticates the sender: guests accept a snapshot only from the peer
+ *  their hello-bound records say holds this token — a bystander who knows
+ *  the room code cannot rewrite the room with a forged snapshot. */
 export interface RoomWireState {
   kind: 'state'
   room: Room
+  adminToken: string
   mid?: string
 }
 
 export interface RoomNet {
   /** Anyone may speak; the host decides what counts. */
   sendAction(action: RoomWireAction): void
-  /** The host's broadcast — guests apply it as-is. */
-  sendState(room: Room): void
+  /** The host's broadcast — guests apply it as-is (after authenticating). */
+  sendState(room: Room, adminToken: string): void
   onAction(cb: (action: RoomWireAction, fromWireId: string) => void): () => void
-  onState(cb: (state: RoomWireState) => void): () => void
+  onState(cb: (state: RoomWireState, fromWireId: string) => void): () => void
   /** Fires per swarm: one physical peer can appear on both swarms. */
   onPeerJoin(cb: (wireId: string) => void): () => void
   onPeerLeave(cb: (wireId: string) => void): () => void
@@ -78,7 +82,7 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
 
   const wires: Swarm[] = []
   const actionListeners = new Set<(a: RoomWireAction, from: string) => void>()
-  const stateListeners = new Set<(s: RoomWireState) => void>()
+  const stateListeners = new Set<(s: RoomWireState, fromWireId: string) => void>()
   const joinListeners = new Set<(wireId: string) => void>()
   const leaveListeners = new Set<(wireId: string) => void>()
   let closed = false
@@ -103,6 +107,16 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     for (const cb of set) {
       try {
         cb(value)
+      } catch {
+        // a broken listener must not break the room
+      }
+    }
+  }
+
+  const emitWith = <A, B>(set: Set<(a: A, b: B) => void>, a: A, b: B) => {
+    for (const cb of set) {
+      try {
+        cb(a, b)
       } catch {
         // a broken listener must not break the room
       }
@@ -155,10 +169,10 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     }
     stateAct.onMessage = (data: unknown, ctx: unknown) => {
       const m = data as RoomWireState
-      if (closed || !m || m?.kind !== 'state' || !m.room) return
+      if (closed || !m || m?.kind !== 'state' || !m.room || typeof m.adminToken !== 'string') return
       if (isDuplicate(m.mid)) return
-      void ctx
-      emit(stateListeners, m)
+      const peerId = typeof ctx === 'string' ? ctx : (ctx as { peerId?: string } | null)?.peerId ?? ''
+      emitWith(stateListeners, m, `${prefix}${peerId}`)
     }
     room.onPeerJoin = (id: string) => {
       if (!closed) emit(joinListeners, `${prefix}${id}`)
@@ -186,8 +200,8 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
       const msg = { ...action, mid: newMessageId() }
       for (const w of wires) w.sendAction(msg)
     },
-    sendState(room) {
-      const state: RoomWireState = { kind: 'state', room, mid: newMessageId() }
+    sendState(room, adminToken) {
+      const state: RoomWireState = { kind: 'state', room, adminToken, mid: newMessageId() }
       for (const w of wires) w.sendState(state)
     },
     onAction(cb) {

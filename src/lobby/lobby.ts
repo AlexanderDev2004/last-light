@@ -106,7 +106,22 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
 
     case 'lobby/peerJoin': {
       if (!state.room) return state
-      if (state.room.members.some((m) => m.id === action.id)) return state // duplicate swarm is the same guest
+      const existing = state.room.members.find((m) => m.id === action.id)
+      if (existing) {
+        // the same token joining again is either the duplicate swarm
+        // delivery or the member rejoining after a drop — they are seated
+        // either way, and a rejoin must show them connected again
+        if (!existing.connected) {
+          return {
+            ...state,
+            room: {
+              ...state.room,
+              members: state.room.members.map((m) => (m.id === action.id ? { ...m, connected: true } : m)),
+            },
+          }
+        }
+        return state
+      }
       if (state.room.members.length >= MAX_MEMBERS) return state
       const joined: Member = {
         id: action.id,
