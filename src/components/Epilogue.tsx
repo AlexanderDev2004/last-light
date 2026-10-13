@@ -12,9 +12,11 @@ import Truths from './Truths'
 export default function Epilogue({
   state,
   dispatch,
+  onNewNight,
 }: {
   state: NightState
   dispatch: (a: Action) => void
+  onNewNight: () => void
 }) {
   const [text, setText] = useState('')
   const [screenOff, setScreenOff] = useState(false)
@@ -92,15 +94,7 @@ export default function Epilogue({
         <button type="button" className="btn btn-quiet" onClick={() => setScreenOff(true)}>
           Turn the screen off
         </button>
-        <button
-          type="button"
-          className="btn-text danger"
-          onClick={() => {
-            if (window.confirm('Begin a new night? This night ends, and its record with it.')) {
-              dispatch({ type: 'night/reset' })
-            }
-          }}
-        >
+        <button type="button" className="btn-text danger" onClick={onNewNight}>
           Begin a new night
         </button>
       </div>
