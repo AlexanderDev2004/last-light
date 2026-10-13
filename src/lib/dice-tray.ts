@@ -191,6 +191,11 @@ export class DiceTray {
     return this.dice.filter((d) => d.settled && d.scheme === scheme && d.value === value).map((d) => d.id)
   }
 
+  /** Every settled die of a scheme, in spawn order. */
+  idsOfScheme(scheme: TrayScheme): number[] {
+    return this.dice.filter((d) => d.settled && d.scheme === scheme).map((d) => d.id)
+  }
+
   private dieSize(count: number): number {
     const area = (this.w * this.h) / Math.max(1, count)
     // Fullscreen overlay (ala D&D Beyond) punya ruang jauh lebih lega,
@@ -376,7 +381,7 @@ export class DiceTray {
       ctx.save()
       ctx.translate(d.x, d.y)
       ctx.rotate(d.angle)
-      const rad = 7
+      const rad = 3
       const s = d.size
       ctx.fillStyle = scheme.body
       ctx.strokeStyle = scheme.edge

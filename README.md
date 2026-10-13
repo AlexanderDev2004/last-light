@@ -1,57 +1,65 @@
-# Last Light — a Ten Candles companion
+# Ten Candles — a table companion
 
 A quiet web companion for the tabletop horror game **Ten Candles** by Stephen Dewey
-(Cavalry Games): ten virtual candles, shared dice, character cards, a truths journal,
-and last-words recordings for the ending.
+(Cavalry Games). Ten virtual candles, communal dice, character stacks, the ritual of
+truths, and last-words recordings — one screen at the center of the table, no server,
+no accounts.
 
 > The world has been dark for ten days. Every character dies. The story is what happens
 > before the final flame goes out.
 
-## What it does
+## How a night plays
 
-- **Landing** — the premise, how play works, and room creation (`Create a room` /
-  `Join a room` by code or link).
-- **Lobby** — room code, keeper identity, muster roll with ready states, invite copy,
-  and a deliberate `Begin the story` action.
-- **Session companion** — ten extinguishable virtual candles as the central timeline,
-  a dice panel (light pool vs. the dark's pool, hope die), burnable Virtue / Vice /
-  Moment / Brink cards, a truths journal, last-words audio recorder, and a session
-  chronicle. Two columns on desktop, stacked on mobile.
+The app follows the real rules of the game, phase by phase:
 
-Rooms travel between browsers with no account and no server to run: tabs sync
-directly over WebRTC (Trystero). A room lives as long as at least one tab keeps it
-open.
+1. **The gathering** — name the keeper of the dark, seat three to five survivors, and
+   write each stack: **virtue, vice, moment**, and a **brink** written in secret. Choose
+   which card sits on top; it burns first. Optionally record a final message per
+   survivor — played back only when every light is gone.
+2. **That which is true** — each scene opens with the ritual: one truth per lit candle,
+   spoken around the table, building on each other, never undone. The keeper opens the
+   night: *"These things are true: the world is dark, and you are alive."*
+3. **The scene** — ten candles burn on screen. Conflicts roll the whole communal pool
+   (one die per lit candle): any six succeeds and the players narrate; every one is set
+   aside for the rest of the scene; no six at all fails, and the keeper darkens a candle
+   to end the scene. The keeper rolls their own pool — one die per darkened candle — and
+   wins only ties they beat, not matches.
+4. **The stack burns** — burning the top card (virtue or vice) rerolls every die showing
+   one. Living your moment lights a **hope die** (it succeeds on 5–6, and a one does not
+   take it). Past the brink — revealed only once everything above it has burned — the
+   whole pool is thrown again on a failure.
+5. **The last stand** — when the final candle goes out there are no more dice. Any
+   conflict can now succeed only in exchange for a character's life. When all have
+   fallen, one last truth is spoken, the recordings play, and the screen goes dark.
 
-## Stack
-
-- [TanStack Start](https://tanstack.com/start) + React 19 + Tailwind CSS 4 (pnpm)
-- [Effect](https://effect.website) `RpcWorker` backend + [Drizzle ORM](https://orm.drizzle.team) + Postgres (Neon) via Cloudflare Hyperdrive
-- [Alchemy](https://alchemy.run) for Cloudflare deployment (`alchemy.run.ts`)
-- PocketBase adapter included as an optional self-hosted tier
+State lives in `localStorage` and survives reloads; "New night" deliberately ends the
+night for good.
 
 ## Run it
 
 ```sh
 pnpm install
 pnpm dev        # http://localhost:3000
+pnpm test       # engine tests (vitest)
+pnpm typecheck
+pnpm build
 ```
 
-Backend priority is automatic: Effect (`VITE_BACKEND_URL`) → PocketBase
-(`VITE_PB_URL` or the on-page switch) → direct browser-to-browser link → this
-browser only. See [DEPLOY.md](./DEPLOY.md) for Cloudflare deployment.
+No backend, no environment variables. Dim the room, light real candles if you can.
 
 ## Project layout
 
 ```
-alchemy.run.ts          Cloudflare stack: website + RPC backend + Neon + Hyperdrive
-src/backend/            Effect RPC contract (rpc.ts), Drizzle schema, DB resources, API worker
-src/routes/             Landing (/), lobby (/lobby/$lobbyId), session (/session/$gameId/$lobbyId)
-src/components/        Candles, dice, character cards, truths, last-words recorder
-src/lib/               Backend adapters (Effect → PocketBase → P2P → local), P2P transport
-migrations/            Generated at deploy time by Drizzle.Schema (committed)
+src/game/engine.ts     Pure reducer: the whole ruleset (types.ts alongside, tests too)
+src/components/        One component per phase: gathering, truths, scene, last stand, epilogue
+src/components/        DicePanel (roll overlay + dice physics), recorder (IndexedDB), rules
+src/lib/dice-tray.ts   Dice physics canvas for the roll overlay
+src/lib/storage.ts     localStorage persistence + IndexedDB recordings
+src/styles.css         Design tokens + component styles — flat black, monospace, one flame accent
 ```
 
 ## License
 
 MIT — see [LICENSE](./LICENSE). Ten Candles itself is a game by Stephen Dewey,
-published by Cavalry Games; this is an unofficial companion.
+published by Cavalry Games; this is an unofficial companion. Buy the game — it comes
+with real candles and real dice.
