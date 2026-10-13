@@ -21,6 +21,7 @@ export default function LobbyHome({
   const [adminName, setAdminName] = useState('')
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
   const [code, setCode] = useState('')
+  const [joinName, setJoinName] = useState('')
 
   return (
     <div className="wrap rise" style={{ paddingTop: 'clamp(2rem, 6vh, 4rem)', paddingBottom: '5rem' }}>
@@ -112,9 +113,23 @@ export default function LobbyHome({
               className="mt-4 flex flex-wrap items-end gap-3"
               onSubmit={(e) => {
                 e.preventDefault()
-                dispatch({ type: 'lobby/joinAttempt', code, name: '' })
+                dispatch({ type: 'lobby/joinAttempt', code, name: joinName })
               }}
             >
+              <div className="min-w-[10rem] flex-1">
+                <label className="label" htmlFor="join-name">
+                  Your name
+                </label>
+                <input
+                  id="join-name"
+                  className="field mt-1.5"
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  placeholder="Bo"
+                  maxLength={24}
+                  autoComplete="off"
+                />
+              </div>
               <div className="min-w-[12rem] flex-1">
                 <label className="label" htmlFor="room-code">
                   Room code

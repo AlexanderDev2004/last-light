@@ -3,9 +3,11 @@ import { initialNight, reducer } from './game/engine'
 import type { Action, NightState } from './game/types'
 import { loadNight, saveNight } from './lib/storage'
 import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyState } from './lobby/lobby'
+import { useRoomNet } from './lobby/use-room-net'
 import Gathering from './components/Gathering'
 import LobbyHome from './components/LobbyHome'
 import RoomScreen from './components/RoomScreen'
+import JoiningScreen from './components/JoiningScreen'
 import TruthPhase from './components/TruthPhase'
 import ScenePhase from './components/ScenePhase'
 import LastStand from './components/LastStand'
@@ -45,6 +47,7 @@ export default function App() {
     state.phase !== 'gathering' || state.gmName !== '' ? 'night' : 'title',
   )
   const [rulesOpen, setRulesOpen] = useState(false)
+  const { renameSelf, leaveRoom } = useRoomNet(lobby, lobbyDispatch)
 
   useEffect(() => {
     saveNight(state)
@@ -96,10 +99,17 @@ export default function App() {
               onSingleScreen={() => setScreen('night')}
               onBack={() => setScreen('title')}
             />
+          ) : lobby.stage === 'joining' && lobby.pendingJoin ? (
+            <JoiningScreen
+              code={lobby.pendingJoin.code}
+              name={lobby.pendingJoin.name}
+              onCancel={leaveRoom}
+            />
           ) : (
             <RoomScreen
               state={lobby}
-              dispatch={lobbyDispatch}
+              onRename={renameSelf}
+              onLeave={leaveRoom}
               onGather={() => setScreen('night')}
             />
           )

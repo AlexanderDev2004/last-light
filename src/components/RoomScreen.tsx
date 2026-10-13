@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import type { LobbyAction, LobbyState } from '../lobby/lobby'
+import { useRef, useState } from 'react'
+import type { LobbyState } from '../lobby/lobby'
 import { isAdmin, me } from '../lobby/lobby'
 import { MAX_SURVIVORS, MIN_SURVIVORS } from '../game/types'
 
@@ -10,11 +10,13 @@ import { MAX_SURVIVORS, MIN_SURVIVORS } from '../game/types'
  */
 export default function RoomScreen({
   state,
-  dispatch,
+  onRename,
+  onLeave,
   onGather,
 }: {
   state: LobbyState
-  dispatch: (action: LobbyAction) => void
+  onRename: (name: string) => void
+  onLeave: () => void
   onGather: () => void
 }) {
   const room = state.room!
@@ -22,26 +24,13 @@ export default function RoomScreen({
   const admin = isAdmin(state)
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef<number | undefined>(undefined)
+  const [renaming, setRenaming] = useState(false)
+  const [draftName, setDraftName] = useState('')
 
-  // Until the transport exists, mock members drift in so the room has life.
-  useEffect(() => {
-    const t1 = window.setTimeout(() => dispatch({ type: 'lobby/mockJoin' }), 1200)
-    const t2 = window.setTimeout(() => dispatch({ type: 'lobby/mockJoin' }), 2800)
-    return () => {
-      window.clearTimeout(t1)
-      window.clearTimeout(t2)
-    }
-  }, [])
-
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(room.code)
-      setCopied(true)
-      window.clearTimeout(copyTimer.current)
-      copyTimer.current = window.setTimeout(() => setCopied(false), 1600)
-    } catch {
-      // clipboard unavailable (insecure context) — the code is on screen anyway
-    }
+  function commitRename() {
+    const name = draftName.trim()
+    if (name && self && name !== self.name) onRename(name)
+    setRenaming(false)
   }
 
   return (
@@ -64,6 +53,9 @@ export default function RoomScreen({
             {copied ? 'copied' : 'copy'}
           </button>
         </div>
+        <p className="mt-3 mb-0 text-[0.8rem] leading-5 text-[var(--text-muted)]">
+          Tabs must stay open — the room lives in the host's browser and dies when it closes.
+        </p>
       </div>
 
       <section aria-labelledby="h-seats" className="mt-10">
@@ -77,12 +69,53 @@ export default function RoomScreen({
                 seat {room.members.indexOf(m) + 1}
               </span>
               <span className="m-0 flex-1">
-                {m.name}
-                {m.id === self?.id && <span className="text-[var(--text-muted)]"> (you)</span>}
+                {m.id === self?.id && renaming ? (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      commitRename()
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      className="field !py-1 !text-[0.95rem]"
+                      style={{ maxWidth: '14rem' }}
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      onBlur={commitRename}
+                      aria-label="Your name at the table"
+                      maxLength={24}
+                    />
+                    <button type="submit" className="btn btn-quiet !py-1">
+                      save
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    {m.name}
+                    {m.id === self?.id && (
+                      <>
+                        <span className="text-[var(--text-muted)]"> (you)</span>{' '}
+                        <button
+                          type="button"
+                          className="btn-text !text-[0.8rem]"
+                          onClick={() => {
+                            setDraftName(m.name)
+                            setRenaming(true)
+                          }}
+                        >
+                          rename
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
               </span>
               <span className="flex items-center gap-3">
                 {m.role === 'admin' && <span className="label m-0 text-[var(--text-primary)]">admin</span>}
                 {m.isGm && <span className="label m-0 text-[var(--flame)]">keeper</span>}
+                {!m.connected && <span className="label m-0">gone dark</span>}
                 <span
                   role="img"
                   aria-label={m.connected ? 'connected' : 'disconnected'}
@@ -117,7 +150,7 @@ export default function RoomScreen({
             Move to the gathering
           </button>
         )}
-        <button type="button" className="btn-text danger" onClick={() => dispatch({ type: 'lobby/leave' })}>
+        <button type="button" className="btn-text danger" onClick={onLeave}>
           Leave the room
         </button>
       </div>
@@ -128,4 +161,15 @@ export default function RoomScreen({
       </p>
     </div>
   )
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(room.code)
+      setCopied(true)
+      window.clearTimeout(copyTimer.current)
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // clipboard unavailable (insecure context) — the code is on screen anyway
+    }
+  }
 }
