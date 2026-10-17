@@ -168,5 +168,8 @@ export interface Room {
 /** 3-5 survivors plus the keeper may sit down for a night. */
 export const MIN_SURVIVORS = 3
 export const MAX_SURVIVORS = 5
-/** hard cap while seated in the room, so a night can always start */
-export const MAX_MEMBERS = MAX_SURVIVORS + 1
+/** hard cap while seated in the room, so a night can always start — the
+ *  whole table, keeper included. Five seats, this table's house rule: the
+ *  book's 3-5 survivors plus the keeper would allow six, but five is where
+ *  this room's door closes. */
+export const MAX_MEMBERS = 5

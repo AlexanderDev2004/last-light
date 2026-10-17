@@ -3,7 +3,7 @@ import type { LobbyAction, LobbyState } from '../lobby/lobby'
 const REFUSALS: Record<NonNullable<LobbyState['failReason']>, { title: string; why: string }> = {
   full: {
     title: 'The table is full',
-    why: 'Every seat is taken — three to five survivors plus the keeper is all a night can hold. Ask the keeper for the next one, or start a room of your own.',
+    why: 'Every seat is taken — the table holds five, the keeper included. Ask the keeper for the next one, or start a room of your own.',
   },
   'night-started': {
     title: 'The night has already begun',

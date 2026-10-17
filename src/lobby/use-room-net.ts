@@ -214,7 +214,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
         } else if (state.room.members.length >= MAX_MEMBERS) {
           dispatch({
             type: 'lobby/joinFailed',
-            notice: 'The room is full — at most six can sit at the table.',
+            notice: 'The room is full — five seats at the table, keeper included.',
             reason: 'full',
           })
         }

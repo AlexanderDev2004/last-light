@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { LobbyState } from '../lobby/lobby'
 import { isAdmin, me } from '../lobby/lobby'
-import { MAX_SURVIVORS, MIN_SURVIVORS } from '../game/types'
+import { MAX_MEMBERS, MIN_SURVIVORS } from '../game/types'
 
 function inviteUrl(code: string): string {
   const url = new URL(window.location.href)
@@ -196,7 +196,8 @@ export default function RoomScreen({
         </ul>
         <p className="mt-3 mb-0 text-[0.85rem] leading-6 text-[var(--text-muted)]" style={{ maxWidth: '44rem' }}>
           The admin keeps the night or hands the seat to a member who wants it — raise your hand on your own row.
-          A night needs {MIN_SURVIVORS}–{MAX_SURVIVORS} survivors plus the keeper.
+          The table holds {MAX_MEMBERS} seats — the keeper plus up to {MAX_MEMBERS - 1}{' '}
+          survivors. A night needs at least {MIN_SURVIVORS} survivors beside the keeper.
         </p>
       </section>
 
