@@ -6,6 +6,7 @@ import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyStat
 import { useRoomNet } from './lobby/use-room-net'
 import Gathering from './components/Gathering'
 import LobbyHome from './components/LobbyHome'
+import InviteJoin from './components/InviteJoin'
 import RoomScreen from './components/RoomScreen'
 import JoiningScreen from './components/JoiningScreen'
 import TruthPhase from './components/TruthPhase'
@@ -43,7 +44,12 @@ export default function App() {
     initialLobby,
   )
   // A saved night in progress resumes; otherwise the night starts at the lobby.
-  // An invite link (?join=CODE) skips the title so the room is one name away.
+  // An invite link (?join=CODE) skips the title and lands on the invite
+  // screen — the room is one name away from landing on it.
+  const [inviteCode] = useState(() => {
+    const c = new URLSearchParams(window.location.search).get('join')?.toUpperCase() ?? ''
+    return /^[A-Z0-9]{1,6}$/.test(c) ? c : ''
+  })
   const [screen, setScreen] = useState<Screen>(() => {
     if (state.phase !== 'gathering' || state.gmName !== '') return 'night'
     return new URLSearchParams(window.location.search).has('join') ? 'lobby' : 'title'
@@ -94,7 +100,9 @@ export default function App() {
             onRules={() => setRulesOpen(true)}
           />
         ) : screen === 'lobby' ? (
-          lobby.stage === 'home' ? (
+          inviteCode && lobby.stage === 'home' ? (
+            <InviteJoin code={inviteCode} dispatch={lobbyDispatch} onBack={() => setScreen('title')} />
+          ) : lobby.stage === 'home' ? (
             <LobbyHome
               state={lobby}
               dispatch={lobbyDispatch}
