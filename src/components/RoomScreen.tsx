@@ -3,6 +3,14 @@ import type { LobbyState } from '../lobby/lobby'
 import { isAdmin, me } from '../lobby/lobby'
 import { MAX_SURVIVORS, MIN_SURVIVORS } from '../game/types'
 
+function inviteUrl(code: string): string {
+  const url = new URL(window.location.href)
+  url.search = ''
+  url.hash = ''
+  url.searchParams.set('join', code)
+  return url.toString()
+}
+
 /**
  * A room as it stands before the night: who is seated, who keeps it, and the
  * code that lets others in. The admin removes members and hands out the
@@ -31,7 +39,9 @@ export default function RoomScreen({
   const self = me(state)
   const admin = isAdmin(state)
   const [copied, setCopied] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
   const copyTimer = useRef<number | undefined>(undefined)
+  const copyLinkTimer = useRef<number | undefined>(undefined)
   const [renaming, setRenaming] = useState(false)
   const [draftName, setDraftName] = useState('')
 
@@ -60,9 +70,13 @@ export default function RoomScreen({
           <button type="button" className="btn btn-quiet !py-1.5" onClick={() => void copyCode()}>
             {copied ? 'copied' : 'copy'}
           </button>
+          <button type="button" className="btn btn-quiet !py-1.5" onClick={() => void copyLink()}>
+            {copiedLink ? 'link copied' : 'copy invite link'}
+          </button>
         </div>
         <p className="mt-3 mb-0 text-[0.8rem] leading-5 text-[var(--text-muted)]">
-          Tabs must stay open — the room lives in the host's browser and dies when it closes.
+          The invite link carries the code — whoever opens it lands on the join form with the room
+          already filled in. Tabs must stay open — the room lives in the host's browser and dies when it closes.
         </p>
       </div>
 
@@ -215,6 +229,17 @@ export default function RoomScreen({
       setCopied(true)
       window.clearTimeout(copyTimer.current)
       copyTimer.current = window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // clipboard unavailable (insecure context) — the code is on screen anyway
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(inviteUrl(room.code))
+      setCopiedLink(true)
+      window.clearTimeout(copyLinkTimer.current)
+      copyLinkTimer.current = window.setTimeout(() => setCopiedLink(false), 1600)
     } catch {
       // clipboard unavailable (insecure context) — the code is on screen anyway
     }

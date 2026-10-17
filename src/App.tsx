@@ -43,9 +43,11 @@ export default function App() {
     initialLobby,
   )
   // A saved night in progress resumes; otherwise the night starts at the lobby.
-  const [screen, setScreen] = useState<Screen>(() =>
-    state.phase !== 'gathering' || state.gmName !== '' ? 'night' : 'title',
-  )
+  // An invite link (?join=CODE) skips the title so the room is one name away.
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (state.phase !== 'gathering' || state.gmName !== '') return 'night'
+    return new URLSearchParams(window.location.search).has('join') ? 'lobby' : 'title'
+  })
   const [rulesOpen, setRulesOpen] = useState(false)
   const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest } = useRoomNet(lobby, lobbyDispatch)
 
