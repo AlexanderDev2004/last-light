@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MAX_MEMBERS, newId } from '../game/types'
 import { openRoomNet, type RoomNet } from '../lib/room-net'
 import type { LobbyAction, LobbyState } from './lobby'
 import { resolveHostAction } from './host-rules'
 
-const JOIN_TIMEOUT_MS = 10_000
+const JOIN_TIMEOUT_MS = 30_000
 /** a guest ends the room after this much silence from the host */
 const HOST_SILENCE_MS = 15_000
 /** after the admin drops, guests wait this long for the new host's first hello */
@@ -38,6 +38,12 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
   const wireTokensRef = useRef(new Map<string, string>())
   /** how many swarms each peer is currently present on */
   const peerSwarmsRef = useRef(new Map<string, number>())
+  /** set once any swarm introduces a peer while knocking */
+  const peerSeenRef = useRef(false)
+  /** knocking heartbeats without a single peer sighting */
+  const blindKnockTicksRef = useRef(0)
+  /** bumping this reopens the transport — a fresh announce to every relay */
+  const [knockRestart, setKnockRestart] = useState(0)
   const lastBroadcastRef = useRef('')
   const heartbeatRef = useRef<number | undefined>(undefined)
   const lastHostSeenRef = useRef(0)
@@ -56,6 +62,8 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     roleRef.current = null
     wireTokensRef.current.clear()
     peerSwarmsRef.current.clear()
+    peerSeenRef.current = false
+    blindKnockTicksRef.current = 0
     lastBroadcastRef.current = ''
     lastHostSeenRef.current = 0
     pendingAdminLossRef.current = null
@@ -205,6 +213,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       net.onPeerJoin((wireId) => {
         // the same physical peer arrives on both swarms; count them so a
         // single swarm's leave doesn't mark the member gone dark
+        peerSeenRef.current = true
         const peer = peerOf(wireId)
         peerSwarmsRef.current.set(peer, (peerSwarmsRef.current.get(peer) ?? 0) + 1)
         if (roleRef.current === 'host') {
@@ -248,6 +257,32 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
         }, 5000)
       } else {
         heartbeatRef.current = window.setInterval(() => {
+          if (lobbyRef.current.stage === 'joining') {
+            // still knocking — the room is legitimately not ours yet. Repeat
+            // the join so a host we discover late (or who discovers us late)
+            // still receives it; joins are idempotent per token.
+            const pending = lobbyRef.current.pendingJoin
+            if (peerSeenRef.current) {
+              blindKnockTicksRef.current = 0
+              if (pending) net.sendAction({ kind: 'join', token: tokenRef.current, name: pending.name })
+            } else {
+              // no swarm has introduced anyone yet — the initial announce
+              // likely missed (trackers and relays can drop or stall it, and
+              // their own retry cycles run tens of seconds). Reopen the
+              // transport for a fresh announce rather than knock into the
+              // void until the join times out.
+              blindKnockTicksRef.current += 1
+              if (blindKnockTicksRef.current >= 3) {
+                console.debug('[room-net] no peers answered the knock — re-announcing via a fresh transport')
+                blindKnockTicksRef.current = 0
+                teardown()
+                setKnockRestart((n) => n + 1)
+                return
+              }
+              if (pending) net.sendAction({ kind: 'join', token: tokenRef.current, name: pending.name })
+            }
+            return
+          }
           const room = lobbyRef.current.room
           if (!room) {
             // the room is gone from state (host lost, leave) — stop watching
@@ -274,7 +309,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
       teardown()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lobby.stage])
+  }, [lobby.stage, knockRestart])
 
   // knocking must give up when no room answers
   useEffect(() => {
