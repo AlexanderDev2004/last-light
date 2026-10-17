@@ -58,6 +58,9 @@ export default function RoomScreen({
         <h1 className="ritual m-0 text-[clamp(1.6rem,4vw,2.5rem)]">{room.name}</h1>
         <span className="label m-0">
           {room.visibility} · {room.members.length} seated
+          {room.gmMemberId
+            ? ` — ${room.members.length - 1} survivors + the keeper`
+            : ` — ${room.members.length} survivors, no keeper yet`}
         </span>
       </div>
 

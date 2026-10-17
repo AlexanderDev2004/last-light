@@ -123,7 +123,12 @@ export default function App() {
               state={lobby}
               onRename={renameSelf}
               onLeave={leaveRoom}
-              onGather={() => setScreen('night')}
+              onGather={() => {
+                // the host has convened the table — the door closes here, not
+                // only when the candles are lit; no one joins mid-setup
+                lobbyDispatch({ type: 'lobby/nightStarted' })
+                setScreen('night')
+              }}
               onKick={kickMember}
               onAppointGm={appointGm}
               onToggleGmInterest={toggleGmInterest}

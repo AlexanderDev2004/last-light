@@ -109,8 +109,8 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
     }
 
     case 'lobby/nightStarted': {
-      // the host lit the candles; a guest clicking it locally must not mark
-      // the room — only the host's room is the one that gets broadcast
+      // the host gathered the table (or lit the candles); a guest clicking it
+      // locally must not mark the room — only the host's room is broadcast
       if (!state.room || state.meId !== state.room.adminId) return state
       return { ...state, room: { ...state.room, nightStarted: true } }
     }
