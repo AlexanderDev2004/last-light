@@ -24,12 +24,17 @@ export interface LobbyState {
   pendingJoin: { code: string; name: string } | null
   /** a one-line message under the join form — wrong code, room full, … */
   notice: string | null
+  /** why the door refused us — full, or the night already begun — shown on
+   *  a dedicated screen with a way back to the lobby */
+  failReason: 'full' | 'night-started' | null
 }
 
 export type LobbyAction =
   | { type: 'lobby/create'; roomName: string; adminName: string; visibility: 'private' | 'public' }
   | { type: 'lobby/joinAttempt'; code: string; name: string }
-  | { type: 'lobby/joinFailed'; notice: string }
+  | { type: 'lobby/joinFailed'; notice: string; reason?: 'full' | 'night-started' }
+  | { type: 'lobby/dismissFailure' }
+  | { type: 'lobby/nightStarted' }
   | { type: 'lobby/netState'; room: Room; selfToken: string }
   | { type: 'lobby/peerJoin'; id: string; name: string }
   | { type: 'lobby/peerLeave'; id: string }
@@ -47,7 +52,7 @@ export type LobbyAction =
   | { type: 'lobby/mockLeave' }
 
 export function initialLobby(): LobbyState {
-  return { stage: 'home', room: null, meId: null, pendingJoin: null, notice: null }
+  return { stage: 'home', room: null, meId: null, pendingJoin: null, notice: null, failReason: null }
 }
 
 /** Room codes: six characters, no I/L/O/0/1 — readable aloud and over chat. */
@@ -77,8 +82,9 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
         adminId: admin.id,
         gmMemberId: null,
         members: [admin],
+        nightStarted: false,
       }
-      return { stage: 'room', room, meId: admin.id, pendingJoin: null, notice: null }
+      return { stage: 'room', room, meId: admin.id, pendingJoin: null, notice: null, failReason: null }
     }
 
     case 'lobby/joinAttempt': {
@@ -95,13 +101,24 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
     }
 
     case 'lobby/joinFailed': {
-      return { ...initialLobby(), notice: action.notice }
+      return { ...initialLobby(), notice: action.notice, failReason: action.reason ?? null }
+    }
+
+    case 'lobby/dismissFailure': {
+      return { ...state, notice: null, failReason: null }
+    }
+
+    case 'lobby/nightStarted': {
+      // the host lit the candles; a guest clicking it locally must not mark
+      // the room — only the host's room is the one that gets broadcast
+      if (!state.room || state.meId !== state.room.adminId) return state
+      return { ...state, room: { ...state.room, nightStarted: true } }
     }
 
     case 'lobby/netState': {
       const seated = action.room.members.some((m) => m.id === action.selfToken)
       if (!seated) return state // the hook turns this into a joinFailed
-      return { stage: 'room', room: action.room, meId: action.selfToken, pendingJoin: null, notice: null }
+      return { stage: 'room', room: action.room, meId: action.selfToken, pendingJoin: null, notice: null, failReason: null }
     }
 
     case 'lobby/peerJoin': {

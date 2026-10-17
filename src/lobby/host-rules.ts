@@ -17,6 +17,10 @@ export function resolveHostAction(room: Room | null, senderToken: string | undef
   if (!room && action.kind !== 'join') return null
   switch (action.kind) {
     case 'join':
+      // the candles are lit — the night is being told, the door is closed.
+      // The knock learns why from the snapshot: the guest-side check refuses
+      // with a notice while this keeps the room's roster untouched.
+      if (room?.nightStarted) return null
       return { type: 'lobby/peerJoin', id: action.token, name: action.name }
 
     case 'rename':

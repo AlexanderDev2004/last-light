@@ -161,6 +161,8 @@ export interface Room {
   /** null = no keeper appointed yet */
   gmMemberId: string | null
   members: Member[]
+  /** the host lit the candles — the night is being told; the door is closed */
+  nightStarted: boolean
 }
 
 /** 3-5 survivors plus the keeper may sit down for a night. */

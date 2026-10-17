@@ -204,8 +204,19 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
           // the room is over for this tab, so drop the transport too
           dispatch({ type: 'lobby/kicked' })
           teardown()
+        } else if (state.room.nightStarted) {
+          // the candles are already lit where we were trying to sit
+          dispatch({
+            type: 'lobby/joinFailed',
+            notice: 'The night has already begun — the story is being told. Ask the keeper to open a fresh room for the next one.',
+            reason: 'night-started',
+          })
         } else if (state.room.members.length >= MAX_MEMBERS) {
-          dispatch({ type: 'lobby/joinFailed', notice: 'The room is full — at most six can sit at the table.' })
+          dispatch({
+            type: 'lobby/joinFailed',
+            notice: 'The room is full — at most six can sit at the table.',
+            reason: 'full',
+          })
         }
         // not seated, not full: a snapshot from before our join landed; wait
       })

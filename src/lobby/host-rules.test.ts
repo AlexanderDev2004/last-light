@@ -21,6 +21,14 @@ describe('the host trust boundary', () => {
     })
   })
 
+  it('a join is refused once the night has begun — the door is closed', () => {
+    const { room } = fixture()
+    const begun: Room = { ...room, nightStarted: true }
+    expect(resolveHostAction(begun, undefined, { kind: 'join', token: 'new-token', name: 'Vera' })).toBeNull()
+    // the same join still seats while the candles are unlit
+    expect(resolveHostAction(room, undefined, { kind: 'join', token: 'new-token', name: 'Vera' })).not.toBeNull()
+  })
+
   it('a rename is refused when the connection carries someone else token', () => {
     const { room } = fixture()
     expect(resolveHostAction(room, 'bo-token', { kind: 'rename', token: 'other-token', name: 'Fake' })).toBeNull()

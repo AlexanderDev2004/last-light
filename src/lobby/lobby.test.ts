@@ -96,6 +96,30 @@ describe('joining by code', () => {
     expect(s.stage).toBe('home')
     expect(s.room).toBeNull()
     expect(s.notice).toContain('K7QP2M')
+    // an ordinary failure carries no door-closed reason of its own
+    expect(s.failReason).toBeNull()
+  })
+
+  it('a refused knock carries its reason until the reader heads back', () => {
+    let s = reducer(initialLobby(), { type: 'lobby/joinFailed', notice: 'The room is full.', reason: 'full' })
+    expect(s.failReason).toBe('full')
+    s = reducer(s, { type: 'lobby/dismissFailure' })
+    expect(s.failReason).toBeNull()
+    expect(s.notice).toBeNull()
+    // a plain failure (no reason) must not leave a stale reason behind
+    let plain = reducer(initialLobby(), { type: 'lobby/joinFailed', notice: 'No room answers to K7QP2M.' })
+    plain = reducer(plain, { type: 'lobby/joinFailed', notice: 'The night has already begun.', reason: 'night-started' })
+    expect(plain.failReason).toBe('night-started')
+  })
+
+  it('only the host lighting the candles closes the room', () => {
+    let s = reducer(initialLobby(), { type: 'lobby/create', roomName: 'r', adminName: 'Mara', visibility: 'private' })
+    s = reducer(s, { type: 'lobby/nightStarted' })
+    expect(s.room?.nightStarted).toBe(true)
+    // a guest's local click must not mark the room — their copy never leads
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/nightStarted' })
+    expect(s.room?.nightStarted).toBe(true)
   })
 })
 

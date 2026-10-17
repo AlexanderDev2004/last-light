@@ -7,6 +7,7 @@ import { useRoomNet } from './lobby/use-room-net'
 import Gathering from './components/Gathering'
 import LobbyHome from './components/LobbyHome'
 import InviteJoin from './components/InviteJoin'
+import JoinRefused from './components/JoinRefused'
 import RoomScreen from './components/RoomScreen'
 import JoiningScreen from './components/JoiningScreen'
 import TruthPhase from './components/TruthPhase'
@@ -100,7 +101,9 @@ export default function App() {
             onRules={() => setRulesOpen(true)}
           />
         ) : screen === 'lobby' ? (
-          inviteCode && lobby.stage === 'home' ? (
+          lobby.stage === 'home' && lobby.failReason ? (
+            <JoinRefused state={lobby} dispatch={lobbyDispatch} />
+          ) : inviteCode && lobby.stage === 'home' ? (
             <InviteJoin code={inviteCode} dispatch={lobbyDispatch} onBack={() => setScreen('title')} />
           ) : lobby.stage === 'home' ? (
             <LobbyHome
@@ -127,7 +130,12 @@ export default function App() {
             />
           )
         ) : state.phase === 'gathering' ? (
-          <Gathering state={state} dispatch={dispatch} onRules={() => setRulesOpen(true)} />
+          <Gathering
+            state={state}
+            dispatch={dispatch}
+            onRules={() => setRulesOpen(true)}
+            onNightBegun={() => lobbyDispatch({ type: 'lobby/nightStarted' })}
+          />
         ) : state.phase === 'truths' ? (
           <TruthPhase state={state} dispatch={dispatch} />
         ) : state.phase === 'scene' ? (
