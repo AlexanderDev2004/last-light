@@ -185,6 +185,18 @@ describe('the ready gate', () => {
     // and the gate asks for fresh readiness before the next night
     expect(gatherRequirements(s.room!)).toEqual(['0 of 4 ready'])
   })
+
+  it('a guest ending the night locally reopens nothing on their own copy', () => {
+    // the same state, but viewed through a guest's tab: their meId is not
+    // the admin's, so their "New night" click must change nothing at all —
+    // the host's room is the only one that exists
+    let host = allReady(gathered())
+    host = reducer(host, { type: 'lobby/nightStarted' })
+    const guestView = { ...host, meId: 'bo-token' }
+    const after = reducer(guestView, { type: 'lobby/nightEnded' })
+    expect(after.room!.nightStarted).toBe(true)
+    expect(after.room!.members.every((m) => m.ready)).toBe(true)
+  })
 })
 
 describe('members arriving over the wire', () => {

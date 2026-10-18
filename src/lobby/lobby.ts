@@ -213,8 +213,12 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
     }
 
     case 'lobby/nightEnded': {
-      // the night is over: the room opens again and every seat readies fresh
-      if (!state.room) return state
+      // the night is over: the room opens again and every seat readies fresh.
+      // Only the host's click counts — a guest's local dispatch must not
+      // reopen the room on their own copy, or they would drift from the
+      // still-closed room until the next snapshot corrects them (heartbeats
+      // carry hellos only, so nothing else would).
+      if (!state.room || state.meId !== state.room.adminId) return state
       return {
         ...state,
         room: {
