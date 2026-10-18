@@ -13,7 +13,7 @@
  *  - joining is a stage, not an instant: knocking, then the host answers
  */
 
-import { MAX_MEMBERS, newId, type Member, type Room } from '../game/types'
+import { MAX_MEMBERS, MIN_SURVIVORS, MAX_SURVIVORS, newId, type Member, type Room } from '../game/types'
 
 export interface LobbyState {
   stage: 'home' | 'joining' | 'room'
@@ -46,6 +46,9 @@ export type LobbyAction =
   | { type: 'lobby/kicked' }
   | { type: 'lobby/adminChanged'; newAdminId: string }
   | { type: 'lobby/toggleGmInterest' }
+  | { type: 'lobby/peerToggleReady'; id: string }
+  | { type: 'lobby/toggleReady' }
+  | { type: 'lobby/nightEnded' }
   | { type: 'lobby/gmChanged'; gmMemberId: string | null }
   | { type: 'lobby/leave' }
   | { type: 'lobby/mockJoin'; name?: string }
@@ -187,6 +190,41 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
       }
     }
 
+    case 'lobby/toggleReady': {
+      if (!state.room || !state.meId || state.room.nightStarted) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === state.meId ? { ...m, ready: !m.ready } : m)),
+        },
+      }
+    }
+
+    case 'lobby/peerToggleReady': {
+      if (!state.room || state.room.nightStarted) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, ready: !m.ready } : m)),
+        },
+      }
+    }
+
+    case 'lobby/nightEnded': {
+      // the night is over: the room opens again and every seat readies fresh
+      if (!state.room) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          nightStarted: false,
+          members: state.room.members.map((m) => ({ ...m, ready: false })),
+        },
+      }
+    }
+
     case 'lobby/peerKick': {
       if (!state.room) return state
       // the keeper's seat empties with the member who held it
@@ -297,4 +335,31 @@ export function me(state: LobbyState): Member | null {
 
 export function isAdmin(state: LobbyState): boolean {
   return me(state)?.role === 'admin'
+}
+
+/**
+ * Why the table cannot move to the gathering yet, each reason in plain words.
+ * An empty list means the night may begin: exactly one keeper, 3–5 survivors
+ * beside them, and every seat ready.
+ */
+export function gatherRequirements(room: Room): string[] {
+  const reasons: string[] = []
+  const survivors = room.members.filter((m) => m.id !== room.gmMemberId)
+  if (!room.gmMemberId || !room.members.some((m) => m.id === room.gmMemberId)) {
+    reasons.push('no keeper yet')
+  }
+  if (survivors.length < MIN_SURVIVORS || survivors.length > MAX_SURVIVORS) {
+    reasons.push(`need ${MIN_SURVIVORS}–${MAX_SURVIVORS} survivors (now ${survivors.length})`)
+  }
+  const readyCount = room.members.filter((m) => m.ready).length
+  if (readyCount < room.members.length) {
+    reasons.push(`${readyCount} of ${room.members.length} ready`)
+  }
+  return reasons
+}
+
+/** The one-line blocker under the start button, or null when it may start. */
+export function gatherBlocker(room: Room): string | null {
+  const reasons = gatherRequirements(room)
+  return reasons.length ? reasons.join(' · ') : null
 }

@@ -72,6 +72,26 @@ describe('the host trust boundary', () => {
     })
   })
 
+  it('a ready toggle from the member own connection is applied', () => {
+    const { room, guestToken } = fixture()
+    expect(resolveHostAction(room, guestToken, { kind: 'toggleReady', token: guestToken })).toEqual({
+      type: 'lobby/peerToggleReady',
+      id: 'bo-token',
+    })
+  })
+
+  it('a ready toggle for someone else token is refused', () => {
+    const { room } = fixture()
+    expect(resolveHostAction(room, undefined, { kind: 'toggleReady', token: 'bo-token' })).toBeNull()
+    expect(resolveHostAction(room, 'bo-token', { kind: 'toggleReady', token: 'other-token' })).toBeNull()
+  })
+
+  it('a ready toggle after the night has begun is refused', () => {
+    const { room, guestToken } = fixture()
+    const begun: Room = { ...room, nightStarted: true }
+    expect(resolveHostAction(begun, guestToken, { kind: 'toggleReady', token: guestToken })).toBeNull()
+  })
+
   it('a GM appointment by a non-admin is refused', () => {
     const { room, guestToken } = fixture()
     expect(resolveHostAction(room, guestToken, { kind: 'appointGm', token: guestToken, gmMemberId: null })).toBeNull()
