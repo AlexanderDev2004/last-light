@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_MEMBERS } from '../game/types'
-import { generateCode, initialLobby, isAdmin, me, reducer } from './lobby'
+import { gatherBlocker, gatherRequirements, generateCode, initialLobby, isAdmin, me, reducer } from './lobby'
 
 describe('room codes', () => {
   it('uses six unambiguous characters', () => {
@@ -120,6 +120,70 @@ describe('joining by code', () => {
     s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
     s = reducer(s, { type: 'lobby/nightStarted' })
     expect(s.room?.nightStarted).toBe(true)
+  })
+})
+
+describe('the ready gate', () => {
+  const created = () =>
+    reducer(initialLobby(), { type: 'lobby/create', roomName: 'r', adminName: 'Mara', visibility: 'private' })
+
+  /** A legal table: the admin keeps the night, three survivors beside them. */
+  function gathered() {
+    let s = created()
+    const adminId = s.meId!
+    for (const name of ['Bo', 'Juno', 'Vera']) {
+      s = reducer(s, { type: 'lobby/peerJoin', id: `${name.toLowerCase()}-token`, name })
+    }
+    s = reducer(s, { type: 'lobby/peerAppointGm', gmMemberId: adminId })
+    return s
+  }
+
+  function allReady(s: ReturnType<typeof gathered>) {
+    for (const m of s.room!.members) s = reducer(s, { type: 'lobby/peerToggleReady', id: m.id })
+    return s
+  }
+
+  it('names every unmet requirement in plain words', () => {
+    const s = created()
+    // the admin alone: no keeper, one survivor, nobody ready
+    expect(gatherRequirements(s.room!)).toEqual(['no keeper yet', 'need 3–5 survivors (now 1)', '0 of 1 ready'])
+  })
+
+  it('stops blocking once the keeper sits, survivors line up, and all are ready', () => {
+    const pending = gathered()
+    // a legal table that has not readied up yet
+    expect(gatherRequirements(pending.room!)).toEqual(['0 of 4 ready'])
+    const ready = allReady(pending)
+    expect(gatherRequirements(ready.room!)).toEqual([])
+    expect(gatherBlocker(ready.room!)).toBeNull()
+  })
+
+  it('refuses to start with too few survivors even when everyone is ready', () => {
+    let s = created()
+    const adminId = s.meId!
+    s = reducer(s, { type: 'lobby/peerJoin', id: 'bo-token', name: 'Bo' })
+    s = reducer(s, { type: 'lobby/peerAppointGm', gmMemberId: adminId })
+    for (const m of s.room!.members) s = reducer(s, { type: 'lobby/peerToggleReady', id: m.id })
+    // the admin keeps the night, so Bo alone is the only survivor
+    expect(gatherRequirements(s.room!)).toEqual(['need 3–5 survivors (now 1)'])
+  })
+
+  it('freezes ready once the night has begun — nobody unreads their way out', () => {
+    let s = allReady(gathered())
+    s = reducer(s, { type: 'lobby/nightStarted' })
+    s = reducer(s, { type: 'lobby/toggleReady' })
+    s = reducer(s, { type: 'lobby/peerToggleReady', id: 'bo-token' })
+    expect(s.room!.members.every((m) => m.ready)).toBe(true)
+  })
+
+  it('reopens the room and resets ready when the night ends', () => {
+    let s = allReady(gathered())
+    s = reducer(s, { type: 'lobby/nightStarted' })
+    s = reducer(s, { type: 'lobby/nightEnded' })
+    expect(s.room!.nightStarted).toBe(false)
+    expect(s.room!.members.every((m) => !m.ready)).toBe(true)
+    // and the gate asks for fresh readiness before the next night
+    expect(gatherRequirements(s.room!)).toEqual(['0 of 4 ready'])
   })
 })
 

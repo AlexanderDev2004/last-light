@@ -35,6 +35,12 @@ export function resolveHostAction(room: Room | null, senderToken: string | undef
       if (!senderToken || senderToken !== action.token) return null
       return { type: 'lobby/peerToggleGmInterest', id: action.token }
 
+    case 'toggleReady':
+      // the night is being told — ready is frozen; nobody flips it now
+      if (room?.nightStarted) return null
+      if (!senderToken || senderToken !== action.token) return null
+      return { type: 'lobby/peerToggleReady', id: action.token }
+
     case 'kick': {
       if (!senderToken || senderToken !== action.token) return null
       if (!room || room.adminId !== senderToken) return null // non-admin
