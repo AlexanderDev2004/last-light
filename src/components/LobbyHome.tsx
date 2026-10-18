@@ -1,5 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { LobbyAction, LobbyState } from '../lobby/lobby'
+
+/** Reads an invite link's room code (`?join=CODE`) out of the URL, once. */
+function inviteCodeFromUrl(): string {
+  const code = new URLSearchParams(window.location.search).get('join')?.toUpperCase() ?? ''
+  return /^[A-Z0-9]{1,6}$/.test(code) ? code : ''
+}
+
+function clearInviteFromUrl() {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('join')
+  window.history.replaceState(null, '', url.toString())
+}
 
 /**
  * The lobby home: create a room, join one by code, or browse public rooms.
@@ -20,7 +32,14 @@ export default function LobbyHome({
   const [roomName, setRoomName] = useState('')
   const [adminName, setAdminName] = useState('')
   const [visibility, setVisibility] = useState<'private' | 'public'>('private')
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(() => inviteCodeFromUrl())
+  const [joinName, setJoinName] = useState('')
+  // an invite link fills the code once; the URL is cleaned so a refresh
+  // doesn't drag the old room back
+  const cameFromInvite = code !== ''
+  useEffect(() => {
+    if (inviteCodeFromUrl()) clearInviteFromUrl()
+  }, [])
 
   return (
     <div className="wrap rise" style={{ paddingTop: 'clamp(2rem, 6vh, 4rem)', paddingBottom: '5rem' }}>
@@ -112,9 +131,24 @@ export default function LobbyHome({
               className="mt-4 flex flex-wrap items-end gap-3"
               onSubmit={(e) => {
                 e.preventDefault()
-                dispatch({ type: 'lobby/joinAttempt', code, name: '' })
+                dispatch({ type: 'lobby/joinAttempt', code, name: joinName })
               }}
             >
+              <div className="min-w-[10rem] flex-1">
+                <label className="label" htmlFor="join-name">
+                  Your name
+                </label>
+                <input
+                  id="join-name"
+                  className="field mt-1.5"
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  placeholder="Bo"
+                  maxLength={24}
+                  autoComplete="off"
+                  autoFocus={cameFromInvite}
+                />
+              </div>
               <div className="min-w-[12rem] flex-1">
                 <label className="label" htmlFor="room-code">
                   Room code

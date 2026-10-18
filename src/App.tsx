@@ -3,9 +3,13 @@ import { initialNight, reducer } from './game/engine'
 import type { Action, NightState } from './game/types'
 import { loadNight, saveNight } from './lib/storage'
 import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyState } from './lobby/lobby'
+import { useRoomNet } from './lobby/use-room-net'
 import Gathering from './components/Gathering'
 import LobbyHome from './components/LobbyHome'
+import InviteJoin from './components/InviteJoin'
+import JoinRefused from './components/JoinRefused'
 import RoomScreen from './components/RoomScreen'
+import JoiningScreen from './components/JoiningScreen'
 import TruthPhase from './components/TruthPhase'
 import ScenePhase from './components/ScenePhase'
 import LastStand from './components/LastStand'
@@ -41,10 +45,18 @@ export default function App() {
     initialLobby,
   )
   // A saved night in progress resumes; otherwise the night starts at the lobby.
-  const [screen, setScreen] = useState<Screen>(() =>
-    state.phase !== 'gathering' || state.gmName !== '' ? 'night' : 'title',
-  )
+  // An invite link (?join=CODE) skips the title and lands on the invite
+  // screen — the room is one name away from landing on it.
+  const [inviteCode] = useState(() => {
+    const c = new URLSearchParams(window.location.search).get('join')?.toUpperCase() ?? ''
+    return /^[A-Z0-9]{1,6}$/.test(c) ? c : ''
+  })
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (state.phase !== 'gathering' || state.gmName !== '') return 'night'
+    return new URLSearchParams(window.location.search).has('join') ? 'lobby' : 'title'
+  })
   const [rulesOpen, setRulesOpen] = useState(false)
+  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest } = useRoomNet(lobby, lobbyDispatch)
 
   useEffect(() => {
     saveNight(state)
@@ -89,22 +101,46 @@ export default function App() {
             onRules={() => setRulesOpen(true)}
           />
         ) : screen === 'lobby' ? (
-          lobby.stage === 'home' ? (
+          lobby.stage === 'home' && lobby.failReason ? (
+            <JoinRefused state={lobby} dispatch={lobbyDispatch} />
+          ) : inviteCode && lobby.stage === 'home' ? (
+            <InviteJoin code={inviteCode} dispatch={lobbyDispatch} onBack={() => setScreen('title')} />
+          ) : lobby.stage === 'home' ? (
             <LobbyHome
               state={lobby}
               dispatch={lobbyDispatch}
               onSingleScreen={() => setScreen('night')}
               onBack={() => setScreen('title')}
             />
+          ) : lobby.stage === 'joining' && lobby.pendingJoin ? (
+            <JoiningScreen
+              code={lobby.pendingJoin.code}
+              name={lobby.pendingJoin.name}
+              onCancel={leaveRoom}
+            />
           ) : (
             <RoomScreen
               state={lobby}
-              dispatch={lobbyDispatch}
-              onGather={() => setScreen('night')}
+              onRename={renameSelf}
+              onLeave={leaveRoom}
+              onGather={() => {
+                // the host has convened the table — the door closes here, not
+                // only when the candles are lit; no one joins mid-setup
+                lobbyDispatch({ type: 'lobby/nightStarted' })
+                setScreen('night')
+              }}
+              onKick={kickMember}
+              onAppointGm={appointGm}
+              onToggleGmInterest={toggleGmInterest}
             />
           )
         ) : state.phase === 'gathering' ? (
-          <Gathering state={state} dispatch={dispatch} onRules={() => setRulesOpen(true)} />
+          <Gathering
+            state={state}
+            dispatch={dispatch}
+            onRules={() => setRulesOpen(true)}
+            onNightBegun={() => lobbyDispatch({ type: 'lobby/nightStarted' })}
+          />
         ) : state.phase === 'truths' ? (
           <TruthPhase state={state} dispatch={dispatch} />
         ) : state.phase === 'scene' ? (

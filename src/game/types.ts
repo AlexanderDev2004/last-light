@@ -147,6 +147,8 @@ export interface Member {
   role: MemberRole
   /** the in-game keeper; at most one, appointed by the admin */
   isGm: boolean
+  /** flagged by the member; the admin may hand the keeper's seat to any of these */
+  wantsGm: boolean
   ready: boolean
   connected: boolean
 }
@@ -159,10 +161,15 @@ export interface Room {
   /** null = no keeper appointed yet */
   gmMemberId: string | null
   members: Member[]
+  /** the host lit the candles — the night is being told; the door is closed */
+  nightStarted: boolean
 }
 
 /** 3-5 survivors plus the keeper may sit down for a night. */
 export const MIN_SURVIVORS = 3
 export const MAX_SURVIVORS = 5
-/** hard cap while seated in the room, so a night can always start */
-export const MAX_MEMBERS = MAX_SURVIVORS + 1
+/** hard cap while seated in the room, so a night can always start — the
+ *  whole table, keeper included. Five seats, this table's house rule: the
+ *  book's 3-5 survivors plus the keeper would allow six, but five is where
+ *  this room's door closes. */
+export const MAX_MEMBERS = 5

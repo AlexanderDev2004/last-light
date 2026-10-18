@@ -2,37 +2,57 @@
  * The lobby: rooms, members, roles — as a pure state machine, separate from
  * the night's engine (rooms outlive nights and have their own lifecycle).
  *
- * This module is local-only for now: members other than the admin arrive
- * through `mockJoin` so the screens can be exercised end to end. The WebRTC
- * transport replaces the mock as the source of these same actions later,
- * without touching this reducer or the components.
+ * The transport (see lib/room-net.ts) feeds this reducer: the host applies
+ * members' wire actions locally and broadcasts snapshots; guests apply the
+ * host's snapshots as-is. The host is the creator (admin); admin != GM —
+ * the keeper is appointed separately.
  *
- * Rules for now (see the lobby issues):
+ * Rules (see the lobby issues):
  *  - the room creator is the admin; admin != GM — the keeper is appointed
  *  - rooms hold at most MAX_MEMBERS people so a night can always start
- *  - joining by code waits for the transport; the attempt is recorded
+ *  - joining is a stage, not an instant: knocking, then the host answers
  */
 
 import { MAX_MEMBERS, newId, type Member, type Room } from '../game/types'
 
 export interface LobbyState {
-  stage: 'home' | 'room'
+  stage: 'home' | 'joining' | 'room'
   room: Room | null
   /** the local user's member id once they are in a room */
   meId: string | null
+  /** while knocking: the code and name the join was attempted with */
+  pendingJoin: { code: string; name: string } | null
   /** a one-line message under the join form — wrong code, room full, … */
   notice: string | null
+  /** why the door refused us — full, or the night already begun — shown on
+   *  a dedicated screen with a way back to the lobby */
+  failReason: 'full' | 'night-started' | null
 }
 
 export type LobbyAction =
   | { type: 'lobby/create'; roomName: string; adminName: string; visibility: 'private' | 'public' }
   | { type: 'lobby/joinAttempt'; code: string; name: string }
+  | { type: 'lobby/joinFailed'; notice: string; reason?: 'full' | 'night-started' }
+  | { type: 'lobby/dismissFailure' }
+  | { type: 'lobby/nightStarted' }
+  | { type: 'lobby/netState'; room: Room; selfToken: string }
+  | { type: 'lobby/peerJoin'; id: string; name: string }
+  | { type: 'lobby/peerLeave'; id: string }
+  | { type: 'lobby/rename'; id: string; name: string }
+  | { type: 'lobby/peerToggleGmInterest'; id: string }
+  | { type: 'lobby/peerKick'; id: string }
+  | { type: 'lobby/peerAppointGm'; gmMemberId: string | null }
+  | { type: 'lobby/hostLost' }
+  | { type: 'lobby/kicked' }
+  | { type: 'lobby/adminChanged'; newAdminId: string }
+  | { type: 'lobby/toggleGmInterest' }
+  | { type: 'lobby/gmChanged'; gmMemberId: string | null }
   | { type: 'lobby/leave' }
   | { type: 'lobby/mockJoin'; name?: string }
   | { type: 'lobby/mockLeave' }
 
 export function initialLobby(): LobbyState {
-  return { stage: 'home', room: null, meId: null, notice: null }
+  return { stage: 'home', room: null, meId: null, pendingJoin: null, notice: null, failReason: null }
 }
 
 /** Room codes: six characters, no I/L/O/0/1 — readable aloud and over chat. */
@@ -45,7 +65,7 @@ export function generateCode(rng: () => number = Math.random): string {
 }
 
 function member(name: string, role: Member['role']): Member {
-  return { id: newId(), name, role, isGm: false, ready: false, connected: true }
+  return { id: newId(), name, role, isGm: false, wantsGm: false, ready: false, connected: true }
 }
 
 /** Names mock members arrive under until the transport exists. */
@@ -62,17 +82,185 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
         adminId: admin.id,
         gmMemberId: null,
         members: [admin],
+        nightStarted: false,
       }
-      return { stage: 'room', room, meId: admin.id, notice: null }
+      return { stage: 'room', room, meId: admin.id, pendingJoin: null, notice: null, failReason: null }
     }
 
     case 'lobby/joinAttempt': {
       const code = action.code.trim().toUpperCase()
       if (!code) return { ...state, notice: 'Enter a room code first.' }
-      // No transport yet: no room can answer. The attempt is reported honestly.
+      // The transport takes over from here: it knocks on the room and either
+      // comes back with a snapshot (netState) or fails (joinFailed).
       return {
         ...state,
-        notice: `No room answers to ${code} yet — rooms sync across devices in a later update.`,
+        stage: 'joining',
+        pendingJoin: { code, name: action.name.trim() || 'A stranger' },
+        notice: null,
+      }
+    }
+
+    case 'lobby/joinFailed': {
+      return { ...initialLobby(), notice: action.notice, failReason: action.reason ?? null }
+    }
+
+    case 'lobby/dismissFailure': {
+      return { ...state, notice: null, failReason: null }
+    }
+
+    case 'lobby/nightStarted': {
+      // the host gathered the table (or lit the candles); a guest clicking it
+      // locally must not mark the room — only the host's room is broadcast
+      if (!state.room || state.meId !== state.room.adminId) return state
+      return { ...state, room: { ...state.room, nightStarted: true } }
+    }
+
+    case 'lobby/netState': {
+      const seated = action.room.members.some((m) => m.id === action.selfToken)
+      if (!seated) return state // the hook turns this into a joinFailed
+      return { stage: 'room', room: action.room, meId: action.selfToken, pendingJoin: null, notice: null, failReason: null }
+    }
+
+    case 'lobby/peerJoin': {
+      if (!state.room) return state
+      const existing = state.room.members.find((m) => m.id === action.id)
+      if (existing) {
+        // the same token joining again is either the duplicate swarm
+        // delivery or the member rejoining after a drop — they are seated
+        // either way, and a rejoin must show them connected again
+        if (!existing.connected) {
+          return {
+            ...state,
+            room: {
+              ...state.room,
+              members: state.room.members.map((m) => (m.id === action.id ? { ...m, connected: true } : m)),
+            },
+          }
+        }
+        return state
+      }
+      if (state.room.members.length >= MAX_MEMBERS) return state
+      const joined: Member = {
+        id: action.id,
+        name: action.name,
+        role: 'member',
+        isGm: false,
+        wantsGm: false,
+        ready: false,
+        connected: true,
+      }
+      return { ...state, room: { ...state.room, members: [...state.room.members, joined] } }
+    }
+
+    case 'lobby/peerLeave': {
+      if (!state.room) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, connected: false } : m)),
+        },
+      }
+    }
+
+    case 'lobby/rename': {
+      if (!state.room) return state
+      const name = action.name.trim().slice(0, 24)
+      if (!name) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, name } : m)),
+        },
+      }
+    }
+
+    case 'lobby/peerToggleGmInterest': {
+      if (!state.room) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) => (m.id === action.id ? { ...m, wantsGm: !m.wantsGm } : m)),
+        },
+      }
+    }
+
+    case 'lobby/peerKick': {
+      if (!state.room) return state
+      // the keeper's seat empties with the member who held it
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          gmMemberId: state.room.gmMemberId === action.id ? null : state.room.gmMemberId,
+          members: state.room.members.filter((m) => m.id !== action.id),
+        },
+      }
+    }
+
+    case 'lobby/peerAppointGm': {
+      if (!state.room) return state
+      const gmMemberId = state.room.members.some((m) => m.id === action.gmMemberId) ? action.gmMemberId : null
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          gmMemberId,
+          members: state.room.members.map((m) => ({ ...m, isGm: m.id === gmMemberId })),
+        },
+      }
+    }
+
+    case 'lobby/hostLost': {
+      return {
+        ...initialLobby(),
+        notice: 'The keeper left and no one remained to keep the room — it has ended.',
+      }
+    }
+
+    case 'lobby/kicked': {
+      return { ...initialLobby(), notice: 'You were removed from the room by the admin.' }
+    }
+
+    case 'lobby/adminChanged': {
+      if (!state.room || !state.room.members.some((m) => m.id === action.newAdminId)) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          adminId: action.newAdminId,
+          members: state.room.members.map((m) => ({ ...m, role: m.id === action.newAdminId ? 'admin' : 'member' })),
+        },
+        notice: `${state.room.members.find((m) => m.id === action.newAdminId)?.name ?? 'A member'} now keeps the room.`,
+      }
+    }
+
+    case 'lobby/toggleGmInterest': {
+      if (!state.room || !state.meId) return state
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          members: state.room.members.map((m) =>
+            m.id === state.meId ? { ...m, wantsGm: !m.wantsGm } : m,
+          ),
+        },
+      }
+    }
+
+    case 'lobby/gmChanged': {
+      if (!state.room) return state
+      // exactly one keeper, or none — an id that is not seated clears the seat
+      const gmMemberId = state.room.members.some((m) => m.id === action.gmMemberId) ? action.gmMemberId : null
+      return {
+        ...state,
+        room: {
+          ...state.room,
+          gmMemberId,
+          members: state.room.members.map((m) => ({ ...m, isGm: m.id === gmMemberId })),
+        },
       }
     }
 

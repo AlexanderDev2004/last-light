@@ -30,10 +30,14 @@ export default function Gathering({
   state,
   dispatch,
   onRules,
+  onNightBegun,
 }: {
   state: NightState
   dispatch: (a: Action) => void
   onRules: () => void
+  /** the candles are lit: the room's door closes behind the night (no-op
+   *  from a guest's tab — only the host's room is broadcast) */
+  onNightBegun: () => void
 }) {
   const [newName, setNewName] = useState('')
   const blocker = beginBlocker(state)
@@ -246,7 +250,10 @@ export default function Gathering({
           className="btn btn-primary"
           disabled={blocker !== null}
           title={blocker ?? 'Light all ten'}
-          onClick={() => dispatch({ type: 'night/begin' })}
+          onClick={() => {
+            dispatch({ type: 'night/begin' })
+            onNightBegun()
+          }}
         >
           Light the candles
         </button>

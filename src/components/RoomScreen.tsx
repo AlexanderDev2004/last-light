@@ -1,47 +1,54 @@
-import { useEffect, useRef, useState } from 'react'
-import type { LobbyAction, LobbyState } from '../lobby/lobby'
+import { useRef, useState } from 'react'
+import type { LobbyState } from '../lobby/lobby'
 import { isAdmin, me } from '../lobby/lobby'
-import { MAX_SURVIVORS, MIN_SURVIVORS } from '../game/types'
+import { MAX_MEMBERS, MIN_SURVIVORS } from '../game/types'
+
+function inviteUrl(code: string): string {
+  const url = new URL(window.location.href)
+  url.search = ''
+  url.hash = ''
+  url.searchParams.set('join', code)
+  return url.toString()
+}
 
 /**
  * A room as it stands before the night: who is seated, who keeps it, and the
- * code that lets others in. Ready-up and the start of the night arrive with
- * the ready gate; until then the admin can move everyone to the gathering.
+ * code that lets others in. The admin removes members and hands out the
+ * keeper's seat; anyone may raise their hand for it. Ready-up and the start
+ * of the night arrive with the ready gate; until then the admin can move
+ * everyone to the gathering.
  */
 export default function RoomScreen({
   state,
-  dispatch,
+  onRename,
+  onLeave,
   onGather,
+  onKick,
+  onAppointGm,
+  onToggleGmInterest,
 }: {
   state: LobbyState
-  dispatch: (action: LobbyAction) => void
+  onRename: (name: string) => void
+  onLeave: () => void
   onGather: () => void
+  onKick: (id: string) => void
+  onAppointGm: (gmMemberId: string | null) => void
+  onToggleGmInterest: () => void
 }) {
   const room = state.room!
   const self = me(state)
   const admin = isAdmin(state)
   const [copied, setCopied] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
   const copyTimer = useRef<number | undefined>(undefined)
+  const copyLinkTimer = useRef<number | undefined>(undefined)
+  const [renaming, setRenaming] = useState(false)
+  const [draftName, setDraftName] = useState('')
 
-  // Until the transport exists, mock members drift in so the room has life.
-  useEffect(() => {
-    const t1 = window.setTimeout(() => dispatch({ type: 'lobby/mockJoin' }), 1200)
-    const t2 = window.setTimeout(() => dispatch({ type: 'lobby/mockJoin' }), 2800)
-    return () => {
-      window.clearTimeout(t1)
-      window.clearTimeout(t2)
-    }
-  }, [])
-
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(room.code)
-      setCopied(true)
-      window.clearTimeout(copyTimer.current)
-      copyTimer.current = window.setTimeout(() => setCopied(false), 1600)
-    } catch {
-      // clipboard unavailable (insecure context) — the code is on screen anyway
-    }
+  function commitRename() {
+    const name = draftName.trim()
+    if (name && self && name !== self.name) onRename(name)
+    setRenaming(false)
   }
 
   return (
@@ -51,6 +58,9 @@ export default function RoomScreen({
         <h1 className="ritual m-0 text-[clamp(1.6rem,4vw,2.5rem)]">{room.name}</h1>
         <span className="label m-0">
           {room.visibility} · {room.members.length} seated
+          {room.gmMemberId
+            ? ` — ${room.members.length - 1} survivors + the keeper`
+            : ` — ${room.members.length} survivors, no keeper yet`}
         </span>
       </div>
 
@@ -63,7 +73,14 @@ export default function RoomScreen({
           <button type="button" className="btn btn-quiet !py-1.5" onClick={() => void copyCode()}>
             {copied ? 'copied' : 'copy'}
           </button>
+          <button type="button" className="btn btn-quiet !py-1.5" onClick={() => void copyLink()}>
+            {copiedLink ? 'link copied' : 'copy invite link'}
+          </button>
         </div>
+        <p className="mt-3 mb-0 text-[0.8rem] leading-5 text-[var(--text-muted)]">
+          The invite link carries the code — whoever opens it lands on the join form with the room
+          already filled in. Tabs must stay open — the room lives in the host's browser and dies when it closes.
+        </p>
       </div>
 
       <section aria-labelledby="h-seats" className="mt-10">
@@ -77,12 +94,92 @@ export default function RoomScreen({
                 seat {room.members.indexOf(m) + 1}
               </span>
               <span className="m-0 flex-1">
-                {m.name}
-                {m.id === self?.id && <span className="text-[var(--text-muted)]"> (you)</span>}
+                {m.id === self?.id && renaming ? (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      commitRename()
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      className="field !py-1 !text-[0.95rem]"
+                      style={{ maxWidth: '14rem' }}
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      onBlur={commitRename}
+                      aria-label="Your name at the table"
+                      maxLength={24}
+                    />
+                    <button type="submit" className="btn btn-quiet !py-1">
+                      save
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    {m.name}
+                    {m.id === self?.id && (
+                      <>
+                        <span className="text-[var(--text-muted)]"> (you)</span>{' '}
+                        <button
+                          type="button"
+                          className="btn-text !text-[0.8rem]"
+                          onClick={() => {
+                            setDraftName(m.name)
+                            setRenaming(true)
+                          }}
+                        >
+                          rename
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
               </span>
               <span className="flex items-center gap-3">
+                {/* the keeper's seat: the admin takes it, takes it back, or
+                    hands it to a member who raised their hand for it */}
+                {admin && self && m.id === self.id && !m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(m.id)}>
+                    take the keeper's seat
+                  </button>
+                )}
+                {admin && self && m.id === self.id && m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(null)}>
+                    leave the seat
+                  </button>
+                )}
+                {admin && self && m.id !== self.id && m.wantsGm && !m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(m.id)}>
+                    make keeper
+                  </button>
+                )}
+                {admin && self && m.id !== self.id && m.isGm && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={() => onAppointGm(null)}>
+                    take the seat back
+                  </button>
+                )}
+                {self && m.id === self.id && (
+                  <button type="button" className="btn-text !text-[0.8rem]" onClick={onToggleGmInterest}>
+                    {m.wantsGm ? 'withdraw my hand' : 'I want to keep the night'}
+                  </button>
+                )}
+                {admin && self && m.id !== self.id && (
+                  <button
+                    type="button"
+                    className="btn-text danger !text-[0.8rem]"
+                    onClick={() => {
+                      if (window.confirm(`Remove ${m.name} from the room?`)) onKick(m.id)
+                    }}
+                  >
+                    kick
+                  </button>
+                )}
                 {m.role === 'admin' && <span className="label m-0 text-[var(--text-primary)]">admin</span>}
                 {m.isGm && <span className="label m-0 text-[var(--flame)]">keeper</span>}
+                {m.wantsGm && !m.isGm && <span className="label m-0">wants the seat</span>}
+                {!m.connected && <span className="label m-0">gone dark</span>}
                 <span
                   role="img"
                   aria-label={m.connected ? 'connected' : 'disconnected'}
@@ -98,8 +195,9 @@ export default function RoomScreen({
           ))}
         </ul>
         <p className="mt-3 mb-0 text-[0.85rem] leading-6 text-[var(--text-muted)]" style={{ maxWidth: '44rem' }}>
-          No keeper yet — the admin keeps the night or hands the seat to a member who wants it.
-          A night needs {MIN_SURVIVORS}–{MAX_SURVIVORS} survivors plus the keeper.
+          The admin keeps the night or hands the seat to a member who wants it — raise your hand on your own row.
+          The table holds {MAX_MEMBERS} seats — the keeper plus up to {MAX_MEMBERS - 1}{' '}
+          survivors. A night needs at least {MIN_SURVIVORS} survivors beside the keeper.
         </p>
       </section>
 
@@ -117,7 +215,7 @@ export default function RoomScreen({
             Move to the gathering
           </button>
         )}
-        <button type="button" className="btn-text danger" onClick={() => dispatch({ type: 'lobby/leave' })}>
+        <button type="button" className="btn-text danger" onClick={onLeave}>
           Leave the room
         </button>
       </div>
@@ -128,4 +226,26 @@ export default function RoomScreen({
       </p>
     </div>
   )
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(room.code)
+      setCopied(true)
+      window.clearTimeout(copyTimer.current)
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // clipboard unavailable (insecure context) — the code is on screen anyway
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(inviteUrl(room.code))
+      setCopiedLink(true)
+      window.clearTimeout(copyLinkTimer.current)
+      copyLinkTimer.current = window.setTimeout(() => setCopiedLink(false), 1600)
+    } catch {
+      // clipboard unavailable (insecure context) — the code is on screen anyway
+    }
+  }
 }
