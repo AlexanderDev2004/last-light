@@ -1,3 +1,5 @@
+import { CandleGlyph } from './Candles'
+
 export default function TitleScreen({
   onBegin,
   onRules,
@@ -7,6 +9,11 @@ export default function TitleScreen({
 }) {
   return (
     <div className="wrap rise" style={{ paddingTop: 'clamp(3rem, 12vh, 8rem)', paddingBottom: '5rem' }}>
+      <div className="title-candles" role="img" aria-label="Five candles burning">
+        {Array.from({ length: 5 }, (_, i) => (
+          <CandleGlyph key={i} lit seed={i} />
+        ))}
+      </div>
       <h1 className="ritual m-0 text-[clamp(2rem,5vw,3.25rem)] leading-tight">Ten Candles</h1>
       <p className="label m-0 mt-2">
         Stephen Dewey · Cavalry Games · 3–5 players · one keeper · 2–3 hours

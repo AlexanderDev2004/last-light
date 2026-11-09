@@ -1,4 +1,25 @@
+import type { CSSProperties } from 'react'
 import { TOTAL_CANDLES } from '../game/types'
+
+/**
+ * One candle glyph — the design port's living element. Layers: glow behind,
+ * flame over the wick, wax with drips below, and a thread of smoke once out.
+ * `seed` staggers each flame's clock so ten never move as one. All internal
+ * offsets hang off the `--wax-h` custom property, so a short candle keeps its
+ * wick, flame, and smoke in the right places.
+ */
+export function CandleGlyph({ lit, seed = 0 }: { lit: boolean; seed?: number }) {
+  const waxH = lit ? `${24 + ((seed * 7) % 16)}px` : '20px'
+  return (
+    <span className={`candle ${lit ? 'lit' : 'out'}`} aria-hidden="true" style={{ '--wax-h': waxH } as CSSProperties}>
+      {lit && <span className="candle-glow" style={{ animationDelay: `${(seed * 0.53) % 1.4}s` }} />}
+      {lit && <span className="candle-flame" style={{ animationDelay: `${(seed * 0.37) % 1.1}s` }} />}
+      <span className="candle-wick" />
+      <span className="candle-smoke" />
+      <span className="candle-wax" style={{ height: waxH }} />
+    </span>
+  )
+}
 
 /**
  * The ten candles — the game's countdown, given the center of the screen.
@@ -37,25 +58,10 @@ export default function Candles({
         )}
       </div>
 
-      <div className="mt-5 grid grid-cols-5 gap-2 sm:grid-cols-10" role="group" aria-label="The ten candles">
-        {Array.from({ length: TOTAL_CANDLES }, (_, i) => {
-          const isLit = i < lit
-          return (
-            <div
-              key={i}
-              className={`candle ${isLit ? 'lit' : ''}`}
-              aria-hidden="true"
-            >
-              <span
-                className="candle-flame"
-                style={{ animationDuration: `${1.8 + ((i * 0.37) % 1.1)}s` }}
-              />
-              <span className="candle-wick" />
-              <span className="candle-wax" style={{ height: isLit ? `${24 + ((i * 7) % 16)}px` : '20px' }} />
-              <span className="candle-state nums">{isLit ? `${TOTAL_CANDLES - i}` : 'Out'}</span>
-            </div>
-          )
-        })}
+      <div className="mt-6 flex flex-wrap items-end gap-3 sm:gap-3.5" role="group" aria-label="The ten candles">
+        {Array.from({ length: TOTAL_CANDLES }, (_, i) => (
+          <CandleGlyph key={i} lit={i < lit} seed={i} />
+        ))}
       </div>
     </section>
   )

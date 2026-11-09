@@ -13,7 +13,7 @@
  * The look: a terminal transcript recovered from the night. One monospace
  * family, flat black, hairline rules, sharp corners, no shadows, no glows,
  * no grain. The only warm color is the flame, and it appears only where
- * something is actually burning.
+ * something is actually burning — the candle is the one living element.
  */
 
 @layer base {
@@ -27,8 +27,10 @@
     --text-secondary: #97907f;
     --text-muted: #615b4f;
     --flame: #e0913c;
+    --flame-bright: #ffc668;
     --flame-dim: #8a5a28;
     --flame-ink: #140c04;
+    --bone: #e8e2d2;
     --blood: #c04a3e;
     color-scheme: dark;
   }
@@ -311,70 +313,164 @@
     border-bottom: none;
   }
 
-  /* ---------- candles ---------- */
+  /* ---------- candles — the one living element ----------
+     Layered from the design port: glow behind, flame above the wick, wax
+     with drips below, and a thread of smoke once the candle is out. Every
+     flame flickers on its own clock so ten never move as one. */
 
   .candle {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    border: 1px solid var(--line);
-    background: var(--raised);
-    padding: 12px 4px 10px;
-    min-height: 118px;
-  }
-
-  .candle.lit {
-    border-color: var(--flame-dim);
-  }
-
-  .candle-wick {
-    width: 1px;
-    height: 6px;
-    background: var(--line-strong);
-  }
-
-  .candle-flame {
-    width: 10px;
-    height: 16px;
-    border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
-    background: var(--flame);
-    transform-origin: 50% 100%;
-    filter: drop-shadow(0 0 6px rgba(224, 145, 60, 0.7));
-    animation: flame 2.2s ease-in-out infinite;
-  }
-
-  .candle:not(.lit) .candle-flame {
-    display: none;
+    width: 16px;
+    height: 96px;
+    /* every offset below hangs off the wax height, so a short candle keeps
+       its wick, flame, and smoke in the right places */
+    --wax-h: 44px;
   }
 
   .candle-wax {
-    width: 20px;
-    background: #cfc0a0;
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 13px;
+    background: linear-gradient(180deg, var(--bone) 0%, #cfc7b2 60%, #b3ab96 100%);
+    border-radius: 3px 3px 1px 1px;
   }
 
-  .candle:not(.lit) .candle-wax {
-    background: #242019;
+  /* wax drips down the sides — two per candle, offset by the seed */
+  .candle-wax::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    width: 5px;
+    height: 12px;
+    background: var(--bone);
+    border-radius: 3px 3px 0 3px;
   }
 
-  .candle-state {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--flame);
-    font-variant-numeric: tabular-nums;
+  .candle-wax::after {
+    content: "";
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 4px;
+    height: 8px;
+    background: #d6cfbc;
+    border-radius: 0 3px 3px 0;
   }
 
-  .candle:not(.lit) .candle-state {
-    color: var(--text-muted);
+  .candle-wick {
+    position: absolute;
+    bottom: calc(var(--wax-h) + 1px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 5px;
+    background: #1a1611;
+  }
+
+  .candle-flame {
+    position: absolute;
+    bottom: calc(var(--wax-h) + 5px);
+    left: 50%;
+    width: 11px;
+    height: 20px;
+    transform: translateX(-50%);
+    transform-origin: 50% 100%;
+    border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+    background: radial-gradient(
+      ellipse 50% 62% at 50% 78%,
+      #fff8dc 0%,
+      var(--flame-bright) 34%,
+      var(--flame) 62%,
+      rgba(224, 145, 60, 0) 100%
+    );
+    animation: flame 2.7s ease-in-out infinite;
+  }
+
+  .candle-glow {
+    position: absolute;
+    bottom: calc(var(--wax-h) * 0.55);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      rgba(224, 145, 60, 0.22) 0%,
+      rgba(224, 145, 60, 0.07) 45%,
+      transparent 70%
+    );
+    animation: candle-glow 3.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .candle-smoke {
+    position: absolute;
+    bottom: calc(var(--wax-h) + 7px);
+    left: 50%;
+    width: 1px;
+    height: 0;
+    background: linear-gradient(180deg, transparent, #4a443a);
+    opacity: 0;
+    transition: opacity 1.2s ease 0.3s;
+  }
+
+  .candle.out .candle-flame,
+  .candle.out .candle-glow {
+    display: none;
+  }
+
+  .candle.out .candle-smoke {
+    height: 18px;
+    opacity: 0.8;
+  }
+
+  .candle.out .candle-wax {
+    filter: brightness(0.72);
   }
 
   @keyframes flame {
-    0%, 100% { transform: scale(1) rotate(-1deg); }
-    30% { transform: scale(1.04, 1.08) rotate(1deg); }
-    60% { transform: scale(0.96, 0.94) rotate(-2deg); }
+    0%, 100% { transform: translateX(-50%) scaleY(1) scaleX(1); }
+    18% { transform: translateX(-49%) scaleY(1.08) scaleX(0.94); }
+    37% { transform: translateX(-51%) scaleY(0.92) scaleX(1.06); }
+    55% { transform: translateX(-50%) scaleY(1.05) scaleX(0.97); }
+    74% { transform: translateX(-49.5%) scaleY(0.96) scaleX(1.03); }
+  }
+
+  @keyframes candle-glow {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
+  }
+
+  /* the title's row of candles — the same glyph, smaller */
+  .title-candles {
+    display: flex;
+    justify-content: flex-start;
+    gap: 14px;
+    margin-bottom: 1.5rem;
+  }
+
+  .title-candles .candle {
+    width: 13px;
+    height: 74px;
+    --wax-h: 40px;
+  }
+
+  .title-candles .candle-wax {
+    width: 11px;
+  }
+
+  .title-candles .candle-flame {
+    width: 9px;
+    height: 16px;
+  }
+
+  .title-candles .candle-glow {
+    width: 44px;
+    height: 44px;
   }
 
   /* ---------- character cards & stacks ---------- */
@@ -770,6 +866,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     .candle-flame { animation: none; }
+    .candle-glow { animation: none; }
+    .candle-smoke { transition: none; }
     .rec-dot { animation: none; }
     .dot-pulse { animation: none; opacity: 0.6; }
     .rise, .ro-pop { animation: none; }

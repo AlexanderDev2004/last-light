@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useState } from 'react'
 import { initialNight, reducer } from './game/engine'
-import type { Action, NightState } from './game/types'
+import { TOTAL_CANDLES, type Action, type NightState } from './game/types'
 import { loadNight, saveNight } from './lib/storage'
 import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyState } from './lobby/lobby'
 import { useRoomNet } from './lobby/use-room-net'
@@ -57,6 +57,21 @@ export default function App() {
   })
   const [rulesOpen, setRulesOpen] = useState(false)
   const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest } = useRoomNet(lobby, lobbyDispatch)
+
+  // The candle is the UI: the whole page darkens with every candle that dies,
+  // from the studio black of the gathering down to the Last Stand's floor.
+  // Only the night drives this — the lobby and title keep the base black.
+  useEffect(() => {
+    const inNight = screen === 'night' && state.phase !== 'gathering'
+    const darkness = inNight ? 1 - state.candlesLit / TOTAL_CANDLES : 0
+    const r = Math.round(13 - 8 * darkness)
+    const g = Math.round(12 - 8 * darkness)
+    const b = Math.round(10 - 7 * darkness)
+    document.body.style.background = `rgb(${r}, ${g}, ${b})`
+    return () => {
+      document.body.style.background = ''
+    }
+  }, [screen, state.phase, state.candlesLit])
 
   useEffect(() => {
     saveNight(state)
