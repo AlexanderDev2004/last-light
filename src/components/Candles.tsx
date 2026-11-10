@@ -12,8 +12,10 @@ export function CandleGlyph({ lit, seed = 0 }: { lit: boolean; seed?: number }) 
   const waxH = lit ? `${24 + ((seed * 7) % 16)}px` : '20px'
   return (
     <span className={`candle ${lit ? 'lit' : 'out'}`} aria-hidden="true" style={{ '--wax-h': waxH } as CSSProperties}>
-      {lit && <span className="candle-glow" style={{ animationDelay: `${(seed * 0.53) % 1.4}s` }} />}
-      {lit && <span className="candle-flame" style={{ animationDelay: `${(seed * 0.37) % 1.1}s` }} />}
+      {/* flame and glow always render — the .out class snuffs them, which lets
+          their fade transitions run both on darkening and on relight */}
+      <span className="candle-glow" style={{ animationDelay: `${(seed * 0.53) % 1.4}s` }} />
+      <span className="candle-flame" style={{ animationDelay: `${(seed * 0.37) % 1.1}s` }} />
       <span className="candle-wick" />
       <span className="candle-smoke" />
       <span className="candle-wax" style={{ height: waxH }} />
