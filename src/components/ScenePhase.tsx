@@ -11,22 +11,28 @@ import Truths from './Truths'
 export default function ScenePhase({
   state,
   dispatch,
+  myToken = null,
+  fallenIds = [],
 }: {
   state: NightState
   dispatch: (a: Action) => void
+  /** this device's own seat, when the night is seated from a room */
+  myToken?: string | null
+  /** seats whose member has gone dark — they have fallen */
+  fallenIds?: string[]
 }) {
   return (
     <div className="wrap rise" style={{ paddingBottom: '5rem' }}>
       <div className="grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
         <div className="space-y-10">
-          <DicePanel state={state} dispatch={dispatch} />
+          <DicePanel state={state} dispatch={dispatch} myToken={myToken} fallenIds={fallenIds} />
           <hr className="rule" />
           <Chronicle state={state} />
         </div>
         <div className="space-y-10">
           <Truths state={state} />
           <hr className="rule" />
-          <Stacks state={state} dispatch={dispatch} />
+          <Stacks state={state} dispatch={dispatch} myToken={myToken} fallenIds={fallenIds} />
         </div>
       </div>
     </div>

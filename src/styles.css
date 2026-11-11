@@ -503,6 +503,13 @@
     border-style: dashed;
   }
 
+  /* a seat whose member went dark mid-night: still standing in the fiction's
+     record, but visibly out of the night */
+  .char-card.gone-dark {
+    opacity: 0.55;
+    border-style: dashed;
+  }
+
   .fallen {
     text-decoration: line-through;
     text-decoration-thickness: 1px;

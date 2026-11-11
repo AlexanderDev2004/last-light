@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { MAX_MEMBERS, newId } from '../game/types'
-import { openRoomNet, type RoomNet } from '../lib/room-net'
+import { MAX_MEMBERS, newId, type Action, type NightState } from '../game/types'
+import { openRoomNet, type NightWireAction, type RoomNet } from '../lib/room-net'
 import type { LobbyAction, LobbyState } from './lobby'
 import { resolveHostAction } from './host-rules'
+import { resolveNightHostAction } from './night-rules'
+import { rollDiceFor, sanitizeForWire, SEALED_BRINK, type SyncAction } from '../game/night-sync'
 
 const JOIN_TIMEOUT_MS = 30_000
 /** a guest ends the room after this much silence from the host */
@@ -23,13 +25,23 @@ function peerOf(wireId: string): string {
  * snapshots as-is and speak only through wire actions. A guest's member id
  * is its own token, so it recognizes itself in the snapshots.
  *
+ * The night rides the same transport under the same authority: the host
+ * applies members' night actions to the engine reducer (through the sync
+ * layer, which carries their dice and guards their brink) and broadcasts the
+ * whole night on every change. See game/night-sync and lobby/night-rules.
+ *
  * The room lives in the host's tab. The admin and the host are the same
  * member: the room's state lives in the admin's tab. When that tab closes,
  * the longest-tenured member still at the table takes over as the new admin
  * and host; everyone else waits briefly for the new host to speak before
  * giving the room up for lost.
  */
-export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void) {
+export function useRoomNet(
+  lobby: LobbyState,
+  dispatch: (a: LobbyAction) => void,
+  night: NightState,
+  nightDispatch: (a: SyncAction) => void,
+) {
   const netRef = useRef<RoomNet | null>(null)
   const roleRef = useRef<'host' | 'guest' | null>(null)
   // Guests identify themselves with this token; the host keeps its admin id.
@@ -53,6 +65,12 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
   const lobbyRef = useRef(lobby)
   lobbyRef.current = lobby
 
+  const nightRef = useRef(night)
+  nightRef.current = night
+  /** the last night snapshot this tab sent, so an unchanged night is not
+   *  re-broadcast on every unrelated render */
+  const lastNightBroadcastRef = useRef('')
+
   /** Ends the transport and resets every ref that belongs to it. */
   function teardown() {
     window.clearInterval(heartbeatRef.current)
@@ -65,6 +83,7 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     peerSeenRef.current = false
     blindKnockTicksRef.current = 0
     lastBroadcastRef.current = ''
+    lastNightBroadcastRef.current = ''
     lastHostSeenRef.current = 0
     pendingAdminLossRef.current = null
   }
@@ -221,6 +240,31 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
         // not seated, not full: a snapshot from before our join landed; wait
       })
 
+      net.onNightAction((wire, fromWireId) => {
+        if (roleRef.current !== 'host') return
+        const sender = wireTokensRef.current.get(peerOf(fromWireId))
+        const applied = resolveNightHostAction(lobbyRef.current.room, sender ?? '', wire)
+        if (!applied) {
+          console.debug('[room-net] night action refused by the night rules:', wire.action.type)
+          return
+        }
+        nightDispatch(applied)
+        // the door out of the night moves the room with it — the same
+        // side-effect the host's own clicks perform through the UI
+        if (wire.action.type === 'night/begin') dispatch({ type: 'lobby/nightStarted' })
+        if (wire.action.type === 'night/reset') dispatch({ type: 'lobby/nightEnded' })
+      })
+
+      net.onNightState((wire, fromWireId) => {
+        if (roleRef.current !== 'guest') return
+        // the same authentication a room snapshot gets: only the peer that
+        // holds the admin's token may broadcast the night
+        if (wireTokensRef.current.get(peerOf(fromWireId)) !== wire.adminToken) return
+        if (lobbyRef.current.stage !== 'room') return
+        lastHostSeenRef.current = Date.now()
+        nightDispatch({ type: 'night/netState', night: wire.night, myToken: tokenRef.current })
+      })
+
       net.onPeerJoin((wireId) => {
         // the same physical peer arrives on both swarms; count them so a
         // single swarm's leave doesn't mark the member gone dark
@@ -234,6 +278,11 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
           net.sendAction({ kind: 'hello', token: lobbyRef.current.meId ?? '' })
           const room = lobbyRef.current.room
           if (room) net.sendState(room, lobbyRef.current.meId ?? '')
+          // a peer that arrives while the night is being told also needs the
+          // night itself — its own snapshot, on its own channel
+          if (room?.nightStarted) {
+            net.sendNightState(sanitizeForWire(nightRef.current), lobbyRef.current.meId ?? '')
+          }
         } else if (roleRef.current === 'guest') {
           const pending = lobbyRef.current.pendingJoin
           if (pending) net.sendAction({ kind: 'join', token: tokenRef.current, name: pending.name })
@@ -345,6 +394,60 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     netRef.current.sendState(lobby.room, lobby.meId ?? '')
   }, [lobby.stage, lobby.room, lobby.meId])
 
+  // the host broadcasts every night change while the night is being told —
+  // sealed first, so no unrevealed brink text ever leaves this device
+  useEffect(() => {
+    if (roleRef.current !== 'host' || !netRef.current || lobby.stage !== 'room' || !lobby.room?.nightStarted) return
+    const clean = sanitizeForWire(night)
+    const json = JSON.stringify(clean)
+    if (json === lastNightBroadcastRef.current) return
+    lastNightBroadcastRef.current = json
+    netRef.current.sendNightState(clean, lobby.meId ?? '')
+  }, [night, lobby.stage, lobby.room?.nightStarted, lobby.meId])
+
+  /**
+   * The night's one door. Every card write, roll, truth, and darken in a
+   * synced room passes through here: the host applies locally (it is the
+   * authority), a guest speaks to the host first — carrying its own throw —
+   * and pre-applies only what the host's rules would accept, so its screen
+   * animates at once and never drifts onto a refused action. Outside a room
+   * this is the plain local dispatch the night has always been.
+   */
+  function nightDo(action: Action) {
+    const room = lobbyRef.current.room
+    if (!room || !room.nightStarted || roleRef.current === null) {
+      nightDispatch(action)
+      return
+    }
+    if (roleRef.current === 'host') {
+      nightDispatch(action)
+      return
+    }
+    // my own screen keeps what I wrote; the wire only ever carries the seal —
+    // the text travels once, inside the reveal that is allowed to speak it
+    const sealed =
+      action.type === 'survivor/setCard' && action.kind === 'brink' ? { ...action, text: SEALED_BRINK } : action
+    const wire: NightWireAction = { kind: 'night/do', token: tokenRef.current, action: sealed }
+    const dice = rollDiceFor(action, nightRef.current)
+    if (dice) {
+      wire.light = dice.light
+      wire.dark = dice.dark
+      if (dice.hope !== null) wire.hope = dice.hope
+    }
+    if (action.type === 'brink/reroll') {
+      // the reveal speaks the text it alone holds; the rules layer refuses a
+      // reveal spoken from any other seat
+      const mine = nightRef.current.survivors.find((s) => s.id === action.actorId)
+      wire.brinkText = mine?.cards.brink.text
+    }
+    const applied = resolveNightHostAction(room, tokenRef.current, wire)
+    if (!applied) return
+    // the guest's own screen applies what it wrote; everything else applies
+    // what the host would apply
+    nightDispatch(sealed === action ? applied : action)
+    netRef.current?.sendNightAction(wire)
+  }
+
   /** The local user renames themselves; guests carry it to the host. */
   function renameSelf(name: string) {
     const meId = lobby.meId
@@ -394,5 +497,5 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     if (roleRef.current === 'guest') netRef.current?.sendAction({ kind: 'toggleReady', token: meId })
   }
 
-  return { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady }
+  return { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady, nightDo }
 }

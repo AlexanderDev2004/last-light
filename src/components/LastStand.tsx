@@ -8,9 +8,12 @@ import type { Action, NightState } from '../game/types'
 export default function LastStand({
   state,
   dispatch,
+  fallenIds = [],
 }: {
   state: NightState
   dispatch: (a: Action) => void
+  /** seats whose member has gone dark — they have fallen with it */
+  fallenIds?: string[]
 }) {
   const [facing, setFacing] = useState<string | null>(null)
   const facingSurvivor = state.survivors.find((s) => s.id === facing) ?? null
@@ -29,25 +32,32 @@ export default function LastStand({
       </p>
 
       <div className="mt-10 space-y-3">
-        {state.survivors.map((s) => (
-          <div key={s.id} className={`char-card ${!s.alive ? 'burned' : ''}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className={`ritual m-0 text-[1.4rem] ${!s.alive ? 'fallen' : ''}`}>
-                  {s.name.trim() || 'Unnamed'}
-                </h3>
-                <p className="m-0 mt-0.5 text-[0.85rem] text-[var(--text-muted)]">
-                  {s.alive ? 'still in the dark' : 'fallen'}
-                </p>
+        {state.survivors.map((s) => {
+          const down = !s.alive || fallenIds.includes(s.id)
+          return (
+            <div key={s.id} className={`char-card ${down ? 'burned' : ''}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className={`ritual m-0 text-[1.4rem] ${down ? 'fallen' : ''}`}>
+                    {s.name.trim() || 'Unnamed'}
+                  </h3>
+                  <p className="m-0 mt-0.5 text-[0.85rem] text-[var(--text-muted)]">
+                    {down
+                      ? s.alive
+                        ? 'gone dark — they fall'
+                        : 'fallen'
+                      : 'still in the dark'}
+                  </p>
+                </div>
+                {s.alive && !down && (
+                  <button type="button" className="btn btn-quiet" onClick={() => setFacing(s.id)}>
+                    Face the dark
+                  </button>
+                )}
               </div>
-              {s.alive && (
-                <button type="button" className="btn btn-quiet" onClick={() => setFacing(s.id)}>
-                  Face the dark
-                </button>
-              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {facingSurvivor && (

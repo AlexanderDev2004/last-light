@@ -169,9 +169,16 @@ function verdictOf(r: ConflictRoll, actorName: string | null): { kicker: string;
 export default function DicePanel({
   state,
   dispatch,
+  myToken = null,
+  fallenIds = [],
 }: {
   state: NightState
   dispatch: (a: Action) => void
+  /** this device's own seat, when the night is seated from a room — a trait
+   *  burn and a brink reveal are spoken from the card's own device */
+  myToken?: string | null
+  /** seats whose member has gone dark — they have fallen and do not act */
+  fallenIds?: string[]
 }) {
   const [actorId, setActorId] = useState<string>('__table')
   const [useHope, setUseHope] = useState(false)
@@ -266,6 +273,9 @@ export default function DicePanel({
     roll.actorId === actor.id &&
     brinkUnlocked(actor) &&
     !actor.brinkRevealed
+  // at a room's table, the rerolls belong to the card's own device: the trait
+  // is spent by its player, and the brink's text exists nowhere else
+  const mayReroll = myToken === null || roll?.actorId === myToken
   const verdict = roll ? verdictOf(roll, actorName) : null
 
   return (
@@ -348,11 +358,13 @@ export default function DicePanel({
             }}
           >
             <option value="__table">The table</option>
-            {state.survivors.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name.trim() || 'Unnamed'}
-              </option>
-            ))}
+            {state.survivors
+              .filter((s) => !fallenIds.includes(s.id))
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name.trim() || 'Unnamed'}
+                </option>
+              ))}
           </select>
         </div>
         {chosenActor?.hopeDie && (
@@ -407,7 +419,7 @@ export default function DicePanel({
                   </p>
                   <p className="ro-vsub">{verdict.sub}</p>
 
-                  {(canBurn || canBrink) && (
+                  {mayReroll && (canBurn || canBrink) && (
                     <div className="ro-veil-actions">
                       {canBurn && top && (
                         <button type="button" className="btn btn-quiet" onClick={burnTrait}>
