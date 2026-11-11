@@ -42,6 +42,7 @@ export type RoomWireAction =
   | { kind: 'rename'; token: string; name: string; mid?: string }
   | { kind: 'leave'; token: string; mid?: string }
   | { kind: 'toggleGmInterest'; token: string; mid?: string }
+  | { kind: 'toggleReady'; token: string; mid?: string }
   | { kind: 'kick'; token: string; target: string; mid?: string }
   | { kind: 'appointGm'; token: string; gmMemberId: string | null; mid?: string }
   | { kind: 'hello'; token: string; mid?: string }

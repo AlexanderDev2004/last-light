@@ -56,18 +56,20 @@ export default function App() {
     return new URLSearchParams(window.location.search).has('join') ? 'lobby' : 'title'
   })
   const [rulesOpen, setRulesOpen] = useState(false)
-  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest } = useRoomNet(lobby, lobbyDispatch)
+  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady } = useRoomNet(lobby, lobbyDispatch)
 
   useEffect(() => {
     saveNight(state)
   }, [state])
 
   // Both restart paths — the top bar and the epilogue — end the night here,
-  // clear any room, and return to the title so the lobby flow runs again.
+  // reopen the room with ready reset, and return to the title so the lobby
+  // flow runs again.
   function beginNewNight() {
     if (!window.confirm('Begin a new night? This night — its truths, its dead, its record — ends now.')) return
     dispatch({ type: 'night/reset' })
-    lobbyDispatch({ type: 'lobby/leave' })
+    // the night is over: the room opens again with ready reset for every seat
+    lobbyDispatch({ type: 'lobby/nightEnded' })
     setScreen('title')
   }
 
@@ -132,6 +134,7 @@ export default function App() {
               onKick={kickMember}
               onAppointGm={appointGm}
               onToggleGmInterest={toggleGmInterest}
+              onToggleReady={toggleReady}
             />
           )
         ) : state.phase === 'gathering' ? (
