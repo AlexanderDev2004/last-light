@@ -152,7 +152,7 @@ function verdictOf(r: ConflictRoll, actorName: string | null): { kicker: string;
   if (r.outcome === 'success_them') {
     return {
       kicker: 'Success, at a price',
-      title: 'They answered as many.',
+      title: 'They answered more.',
       sub: `${actorName ?? 'The table'} succeeds — but the keeper describes what the success looks like, and what it costs.`,
     }
   }
@@ -407,23 +407,22 @@ export default function DicePanel({
                   </p>
                   <p className="ro-vsub">{verdict.sub}</p>
 
-                  {roll.outcome === 'failure' ? (
-                    <>
-                      {(canBurn || canBrink) && (
-                        <div className="ro-veil-actions">
-                          {canBurn && top && (
-                            <button type="button" className="btn btn-quiet" onClick={burnTrait}>
-                              Burn the {top.kind} — “{top.text}” — and reroll the ones
-                            </button>
-                          )}
-                          {canBrink && (
-                            <button type="button" className="btn btn-quiet" onClick={revealBrink}>
-                              Go past the brink — throw the whole pool again
-                            </button>
-                          )}
-                        </div>
+                  {(canBurn || canBrink) && (
+                    <div className="ro-veil-actions">
+                      {canBurn && top && (
+                        <button type="button" className="btn btn-quiet" onClick={burnTrait}>
+                          Burn the {top.kind} — “{top.text}” — and reroll the ones
+                        </button>
                       )}
-                      <div className="ro-darken-flow">
+                      {canBrink && (
+                        <button type="button" className="btn btn-quiet" onClick={revealBrink}>
+                          Go past the brink — throw the whole pool again
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {roll.outcome === 'failure' ? (
+                    <div className="ro-darken-flow">
                         <p className="label m-0">A candle is darkened by</p>
                         <div className="ro-who-row">
                           <button
@@ -454,8 +453,7 @@ export default function DicePanel({
                           </button>
                         </div>
                       </div>
-                    </>
-                  ) : (
+                    ) : (
                     <div className="ro-veil-actions">
                       <button type="button" className="btn btn-primary" onClick={() => setOpen(false)}>
                         Back to the scene
