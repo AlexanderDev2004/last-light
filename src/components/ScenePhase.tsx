@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Action, NightState } from '../game/types'
-import Candles from './Candles'
 import Chronicle from './Chronicle'
 import DicePanel from './DicePanel'
 import Stacks from './Stacks'
 import Truths from './Truths'
 
-/** The heart of the night: the candles, the conflicts, the stacks, the truths. */
+/** The heart of the night: the conflicts, the stacks, the truths — below the
+ *  candle row, which App keeps mounted across the night's phases. */
 export default function ScenePhase({
   state,
   dispatch,
@@ -15,31 +15,8 @@ export default function ScenePhase({
   state: NightState
   dispatch: (a: Action) => void
 }) {
-  const [darkenOpen, setDarkenOpen] = useState(false)
-
   return (
-    <div className="wrap rise" style={{ paddingTop: 'clamp(1.5rem, 4vh, 3rem)', paddingBottom: '5rem' }}>
-      <Candles
-        lit={state.candlesLit}
-        canDarken
-        onDarken={() => setDarkenOpen(true)}
-      />
-
-      {darkenOpen && (
-        <DarkenByDialog
-          state={state}
-          onCancel={() => setDarkenOpen(false)}
-          onConfirm={(by) => {
-            setDarkenOpen(false)
-            dispatch({ type: 'scene/darken', by })
-          }}
-          label="A candle gutters out — not by any failure, simply by accident. The scene ends here."
-          confirm="Let it go out"
-        />
-      )}
-
-      <hr className="rule my-9" />
-
+    <div className="wrap rise" style={{ paddingBottom: '5rem' }}>
       <div className="grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
         <div className="space-y-10">
           <DicePanel state={state} dispatch={dispatch} />

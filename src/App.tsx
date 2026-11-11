@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useState } from 'react'
 import { initialNight, reducer } from './game/engine'
-import type { Action, NightState } from './game/types'
+import { TOTAL_CANDLES, type Action, type NightState } from './game/types'
 import { loadNight, saveNight } from './lib/storage'
 import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyState } from './lobby/lobby'
 import { useRoomNet } from './lobby/use-room-net'
@@ -16,6 +16,8 @@ import LastStand from './components/LastStand'
 import Epilogue from './components/Epilogue'
 import RulesModal from './components/RulesModal'
 import TitleScreen from './components/TitleScreen'
+import Candles from './components/Candles'
+import { DarkenByDialog } from './components/ScenePhase'
 
 type Screen = 'title' | 'lobby' | 'night'
 
@@ -56,7 +58,26 @@ export default function App() {
     return new URLSearchParams(window.location.search).has('join') ? 'lobby' : 'title'
   })
   const [rulesOpen, setRulesOpen] = useState(false)
+  // the accident-darken dialog sits at the App level so the candle row can
+  // persist across the scene boundary — a candle that dies mid-scene is one
+  // the table watches go out, not one that silently re-renders
+  const [darkenOpen, setDarkenOpen] = useState(false)
   const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady } = useRoomNet(lobby, lobbyDispatch)
+
+  // The candle is the UI: the whole page darkens with every candle that dies,
+  // from the studio black of the gathering down to the Last Stand's floor.
+  // Only the night drives this — the lobby and title keep the base black.
+  useEffect(() => {
+    const inNight = screen === 'night' && state.phase !== 'gathering'
+    const darkness = inNight ? 1 - state.candlesLit / TOTAL_CANDLES : 0
+    const r = Math.round(13 - 8 * darkness)
+    const g = Math.round(12 - 8 * darkness)
+    const b = Math.round(10 - 7 * darkness)
+    document.body.style.background = `rgb(${r}, ${g}, ${b})`
+    return () => {
+      document.body.style.background = ''
+    }
+  }, [screen, state.phase, state.candlesLit])
 
   useEffect(() => {
     saveNight(state)
@@ -94,6 +115,32 @@ export default function App() {
             </button>
           </span>
         </header>
+      )}
+
+      {/* the candle row is one persistent element across the night's phases —
+          scene, truths, and the Last Stand — so a candle that dies is seen
+          dying, and a new night sees the ten flame up together */}
+      {screen === 'night' && (state.phase === 'scene' || state.phase === 'truths' || state.phase === 'laststand') && (
+        <div className="wrap" style={{ paddingTop: 'clamp(1.5rem, 4vh, 3rem)' }}>
+          <Candles
+            lit={state.candlesLit}
+            canDarken={state.phase === 'scene'}
+            onDarken={() => setDarkenOpen(true)}
+          />
+          <hr className="rule mt-9" />
+        </div>
+      )}
+      {darkenOpen && state.phase === 'scene' && (
+        <DarkenByDialog
+          state={state}
+          onCancel={() => setDarkenOpen(false)}
+          onConfirm={(by) => {
+            setDarkenOpen(false)
+            dispatch({ type: 'scene/darken', by })
+          }}
+          label="A candle gutters out — not by any failure, simply by accident. The scene ends here."
+          confirm="Let it go out"
+        />
       )}
 
       <main>
