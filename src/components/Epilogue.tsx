@@ -13,10 +13,13 @@ export default function Epilogue({
   state,
   dispatch,
   onNewNight,
+  canBegin = true,
 }: {
   state: NightState
   dispatch: (a: Action) => void
   onNewNight: () => void
+  /** in a room only the admin and the keeper may end the night */
+  canBegin?: boolean
 }) {
   const [text, setText] = useState('')
   const [screenOff, setScreenOff] = useState(false)
@@ -94,9 +97,11 @@ export default function Epilogue({
         <button type="button" className="btn btn-quiet" onClick={() => setScreenOff(true)}>
           Turn the screen off
         </button>
-        <button type="button" className="btn-text danger" onClick={onNewNight}>
-          Begin a new night
-        </button>
+        {canBegin && (
+          <button type="button" className="btn-text danger" onClick={onNewNight}>
+            Begin a new night
+          </button>
+        )}
       </div>
 
       {screenOff &&

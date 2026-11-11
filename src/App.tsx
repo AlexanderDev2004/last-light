@@ -1,6 +1,7 @@
-import { useEffect, useReducer, useState } from 'react'
-import { initialNight, reducer } from './game/engine'
-import { TOTAL_CANDLES, type Action, type NightState } from './game/types'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { initialNight } from './game/engine'
+import { type Action, type NightState, TOTAL_CANDLES } from './game/types'
+import { syncReducer, nightFromRoom, type SyncAction } from './game/night-sync'
 import { loadNight, saveNight } from './lib/storage'
 import { initialLobby, reducer as lobbyReducer, type LobbyAction, type LobbyState } from './lobby/lobby'
 import { useRoomNet } from './lobby/use-room-net'
@@ -36,8 +37,10 @@ function hydrate(): NightState {
 }
 
 export default function App() {
-  const [state, dispatch] = useReducer(
-    (current: NightState, action: Action) => reducer(current, action),
+  // the night's reducer, wrapped — not changed: the wrapper answers the few
+  // things a networked night needs that the engine must not know about
+  const [state, nightDispatch] = useReducer(
+    (current: NightState, action: SyncAction) => syncReducer(current, action),
     undefined,
     hydrate,
   )
@@ -62,7 +65,43 @@ export default function App() {
   // persist across the scene boundary — a candle that dies mid-scene is one
   // the table watches go out, not one that silently re-renders
   const [darkenOpen, setDarkenOpen] = useState(false)
-  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady } = useRoomNet(lobby, lobbyDispatch)
+  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady, nightDo } = useRoomNet(
+    lobby,
+    lobbyDispatch,
+    state,
+    nightDispatch,
+  )
+  const dispatch = nightDo as (a: Action) => void
+
+  // The room's own view of the night: seats whose member has gone dark have
+  // fallen — the rules keep their rule (whoever leaves, falls) — and the
+  // night's door is the admin's and the keeper's both.
+  const room = lobby.stage === 'room' ? lobby.room : null
+  const fallenIds = useMemo(() => {
+    if (!room) return [] as string[]
+    return room.members.filter((m) => !m.connected && m.id !== room.gmMemberId).map((m) => m.id)
+  }, [room])
+  const canOpenTheNight = !room || lobby.meId === room.adminId || lobby.meId === room.gmMemberId
+  const nightStarted = room?.nightStarted === true
+
+  // The night moves the whole table: when the room's snapshot says the
+  // gathering has begun, every seat follows; when it ends, every seat is
+  // back in the room with the night behind it. A member cast out of the
+  // room (kicked, or the host lost) leaves the night with it.
+  const wasRoomNight = useRef(false)
+  useEffect(() => {
+    if (nightStarted) wasRoomNight.current = true
+    if (nightStarted && screen !== 'night') setScreen('night')
+    if (!nightStarted && lobby.stage === 'room' && screen === 'night') {
+      setScreen('lobby')
+      nightDispatch({ type: 'night/reset' })
+    }
+    if (wasRoomNight.current && lobby.stage !== 'room') {
+      wasRoomNight.current = false
+      setScreen('lobby')
+      nightDispatch({ type: 'night/reset' })
+    }
+  }, [nightStarted, lobby.stage, screen])
 
   // The candle is the UI: the whole page darkens with every candle that dies,
   // from the studio black of the gathering down to the Last Stand's floor.
@@ -83,15 +122,21 @@ export default function App() {
     saveNight(state)
   }, [state])
 
-  // Both restart paths — the top bar and the epilogue — end the night here,
-  // reopen the room with ready reset, and return to the title so the lobby
-  // flow runs again.
+  // Both restart paths — the top bar and the epilogue — end the night here.
+  // In a room, the reset travels through the same door as every other night
+  // action and the room reopens with ready reset; alone, the tab returns to
+  // the title so the lobby flow runs again.
   function beginNewNight() {
     if (!window.confirm('Begin a new night? This night — its truths, its dead, its record — ends now.')) return
     dispatch({ type: 'night/reset' })
-    // the night is over: the room opens again with ready reset for every seat
-    lobbyDispatch({ type: 'lobby/nightEnded' })
-    setScreen('title')
+    if (!room) {
+      lobbyDispatch({ type: 'lobby/nightEnded' })
+      setScreen('title')
+      return
+    }
+    // only the host's click reopens the room locally — a keeper who is a
+    // guest lets the host's snapshot close it for everyone
+    if (lobby.meId === room.adminId) lobbyDispatch({ type: 'lobby/nightEnded' })
   }
 
   return (
@@ -110,9 +155,11 @@ export default function App() {
             <button type="button" className="btn-text" onClick={() => setRulesOpen(true)}>
               The rules
             </button>
-            <button type="button" className="btn-text danger" onClick={beginNewNight}>
-              New night
-            </button>
+            {canOpenTheNight && (
+              <button type="button" className="btn-text danger" onClick={beginNewNight}>
+                New night
+              </button>
+            )}
           </span>
         </header>
       )}
@@ -174,8 +221,11 @@ export default function App() {
               onLeave={leaveRoom}
               onGather={() => {
                 // the host has convened the table — the door closes here, not
-                // only when the candles are lit; no one joins mid-setup
+                // only when the candles are lit; no one joins mid-setup. The
+                // seats are dealt from the room's members: one survivor per
+                // member beside the keeper, each seat id its member's token.
                 lobbyDispatch({ type: 'lobby/nightStarted' })
+                if (lobby.room) nightDispatch({ type: 'night/seed', night: nightFromRoom(lobby.room) })
                 setScreen('night')
               }}
               onKick={kickMember}
@@ -190,15 +240,19 @@ export default function App() {
             dispatch={dispatch}
             onRules={() => setRulesOpen(true)}
             onNightBegun={() => lobbyDispatch({ type: 'lobby/nightStarted' })}
+            room={room}
+            myToken={lobby.meId}
+            canBegin={canOpenTheNight}
+            fallenIds={fallenIds}
           />
         ) : state.phase === 'truths' ? (
           <TruthPhase state={state} dispatch={dispatch} />
         ) : state.phase === 'scene' ? (
-          <ScenePhase state={state} dispatch={dispatch} />
+          <ScenePhase state={state} dispatch={dispatch} myToken={lobby.meId} fallenIds={fallenIds} />
         ) : state.phase === 'laststand' ? (
-          <LastStand state={state} dispatch={dispatch} />
+          <LastStand state={state} dispatch={dispatch} fallenIds={fallenIds} />
         ) : (
-          <Epilogue state={state} dispatch={dispatch} onNewNight={beginNewNight} />
+          <Epilogue state={state} dispatch={dispatch} onNewNight={beginNewNight} canBegin={canOpenTheNight} />
         )}
       </main>
 

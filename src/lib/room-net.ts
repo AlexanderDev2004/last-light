@@ -1,4 +1,4 @@
-import type { Room } from '../game/types'
+import type { Action, NightState, Room } from '../game/types'
 
 /**
  * The room transport: WebRTC over Trystero, no server. Every room joins two
@@ -58,6 +58,32 @@ export interface RoomWireState {
   mid?: string
 }
 
+/** A night action spoken to the host: the token authorizes it, and the
+ *  pre-rolled dice are the sender's own throw — rolled on the device whose
+ *  player threw them, consumed by the host's reducer in engine order.
+ *  `brinkText` rides along only on a reveal, the one moment the rules let
+ *  the brink be seen. */
+export type NightWireAction = {
+  kind: 'night/do'
+  token: string
+  action: Action
+  light?: number[]
+  dark?: number[]
+  hope?: number
+  brinkText?: string
+  mid?: string
+}
+
+/** The host's authoritative night, broadcast on every change; guests apply
+ *  it after the same admin-token check the room snapshot gets. Unrevealed
+ *  brinks arrive sealed (see game/night-sync). */
+export interface NightWireState {
+  kind: 'night-state'
+  night: NightState
+  adminToken: string
+  mid?: string
+}
+
 export interface RoomNet {
   /** Anyone may speak; the host decides what counts. */
   sendAction(action: RoomWireAction): void
@@ -65,6 +91,11 @@ export interface RoomNet {
   sendState(room: Room, adminToken: string): void
   onAction(cb: (action: RoomWireAction, fromWireId: string) => void): () => void
   onState(cb: (state: RoomWireState, fromWireId: string) => void): () => void
+  /** The night rides the same transport on its own two channels. */
+  sendNightAction(action: NightWireAction): void
+  sendNightState(night: NightState, adminToken: string): void
+  onNightAction(cb: (action: NightWireAction, fromWireId: string) => void): () => void
+  onNightState(cb: (state: NightWireState, fromWireId: string) => void): () => void
   /** Fires per swarm: one physical peer can appear on both swarms. */
   onPeerJoin(cb: (wireId: string) => void): () => void
   onPeerLeave(cb: (wireId: string) => void): () => void
@@ -74,6 +105,8 @@ export interface RoomNet {
 interface Swarm {
   sendAction(data: RoomWireAction): void
   sendState(data: RoomWireState): void
+  sendNightAction(data: NightWireAction): void
+  sendNightState(data: NightWireState): void
   leave(): void
 }
 
@@ -84,6 +117,8 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
   const wires: Swarm[] = []
   const actionListeners = new Set<(a: RoomWireAction, from: string) => void>()
   const stateListeners = new Set<(s: RoomWireState, fromWireId: string) => void>()
+  const nightActionListeners = new Set<(a: NightWireAction, from: string) => void>()
+  const nightStateListeners = new Set<(s: NightWireState, fromWireId: string) => void>()
   const joinListeners = new Set<(wireId: string) => void>()
   const leaveListeners = new Set<(wireId: string) => void>()
   let closed = false
@@ -150,6 +185,8 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     }
     const actionAct = room.makeAction('room-action')
     const stateAct = room.makeAction('room-state')
+    const nightActionAct = room.makeAction('night-action')
+    const nightStateAct = room.makeAction('night-state')
     actionAct.onMessage = (data: unknown, ctx: unknown) => {
       const m = data as RoomWireAction
       if (closed || !m || typeof m.kind !== 'string') return
@@ -175,6 +212,20 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
       const peerId = typeof ctx === 'string' ? ctx : (ctx as { peerId?: string } | null)?.peerId ?? ''
       emitWith(stateListeners, m, `${prefix}${peerId}`)
     }
+    nightActionAct.onMessage = (data: unknown, ctx: unknown) => {
+      const m = data as NightWireAction
+      if (closed || !m || m?.kind !== 'night/do' || !m.action || typeof m.action.type !== 'string') return
+      if (isDuplicate(m.mid)) return
+      const peerId = typeof ctx === 'string' ? ctx : (ctx as { peerId?: string } | null)?.peerId ?? ''
+      emitWith(nightActionListeners, m, `${prefix}${peerId}`)
+    }
+    nightStateAct.onMessage = (data: unknown, ctx: unknown) => {
+      const m = data as NightWireState
+      if (closed || !m || m?.kind !== 'night-state' || !m.night || typeof m.adminToken !== 'string') return
+      if (isDuplicate(m.mid)) return
+      const peerId = typeof ctx === 'string' ? ctx : (ctx as { peerId?: string } | null)?.peerId ?? ''
+      emitWith(nightStateListeners, m, `${prefix}${peerId}`)
+    }
     room.onPeerJoin = (id: string) => {
       if (!closed) emit(joinListeners, `${prefix}${id}`)
     }
@@ -184,6 +235,8 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     return {
       sendAction: (data) => void actionAct.send(data as never).catch(() => {}),
       sendState: (data) => void stateAct.send(data as never).catch(() => {}),
+      sendNightAction: (data) => void nightActionAct.send(data as never).catch(() => {}),
+      sendNightState: (data) => void nightStateAct.send(data as never).catch(() => {}),
       leave: () => void room.leave().catch(() => {}),
     }
   }
@@ -205,6 +258,14 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
       const state: RoomWireState = { kind: 'state', room, adminToken, mid: newMessageId() }
       for (const w of wires) w.sendState(state)
     },
+    sendNightAction(action) {
+      const msg = { ...action, mid: newMessageId() }
+      for (const w of wires) w.sendNightAction(msg)
+    },
+    sendNightState(night, adminToken) {
+      const state: NightWireState = { kind: 'night-state', night, adminToken, mid: newMessageId() }
+      for (const w of wires) w.sendNightState(state)
+    },
     onAction(cb) {
       actionListeners.add(cb)
       return () => actionListeners.delete(cb)
@@ -212,6 +273,14 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
     onState(cb) {
       stateListeners.add(cb)
       return () => stateListeners.delete(cb)
+    },
+    onNightAction(cb) {
+      nightActionListeners.add(cb)
+      return () => nightActionListeners.delete(cb)
+    },
+    onNightState(cb) {
+      nightStateListeners.add(cb)
+      return () => nightStateListeners.delete(cb)
     },
     onPeerJoin(cb) {
       joinListeners.add(cb)
@@ -225,6 +294,8 @@ export async function openRoomNet(code: string): Promise<RoomNet | null> {
       closed = true
       actionListeners.clear()
       stateListeners.clear()
+      nightActionListeners.clear()
+      nightStateListeners.clear()
       joinListeners.clear()
       leaveListeners.clear()
       for (const w of wires) w.leave()

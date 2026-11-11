@@ -4,14 +4,20 @@ import { useState } from 'react'
 
 /**
  * The survivors' stacks during play: what burns, what has burned, and the
- * buttons the fiction calls for — living a moment, going past a brink.
+ * buttons the fiction calls for — living a moment, going past a brink. At a
+ * room's table a moment is lived from its own seat's device; a seat whose
+ * member has gone dark has fallen.
  */
 export default function Stacks({
   state,
   dispatch,
+  myToken = null,
+  fallenIds = [],
 }: {
   state: NightState
   dispatch: (a: Action) => void
+  myToken?: string | null
+  fallenIds?: string[]
 }) {
   return (
     <section aria-labelledby="h-stacks">
@@ -25,7 +31,14 @@ export default function Stacks({
 
       <div className="mt-4 space-y-4">
         {state.survivors.map((s) => (
-          <SurvivorStack key={s.id} state={state} dispatch={dispatch} survivorId={s.id} />
+          <SurvivorStack
+            key={s.id}
+            state={state}
+            dispatch={dispatch}
+            survivorId={s.id}
+            mine={myToken === null || myToken === s.id}
+            fallen={fallenIds.includes(s.id)}
+          />
         ))}
       </div>
     </section>
@@ -36,10 +49,15 @@ function SurvivorStack({
   state,
   dispatch,
   survivorId,
+  mine,
+  fallen,
 }: {
   state: NightState
   dispatch: (a: Action) => void
   survivorId: string
+  /** this device may act on this stack — its own seat, or a night without rooms */
+  mine: boolean
+  fallen: boolean
 }) {
   const s = state.survivors.find((x) => x.id === survivorId)!
   const [confirmMoment, setConfirmMoment] = useState(false)
@@ -48,11 +66,11 @@ function SurvivorStack({
   const brinkReady = brinkUnlocked(s) && !s.brinkRevealed
 
   return (
-    <article className="char-card" aria-label={`Stack for ${s.name || 'a survivor'}`}>
+    <article className={`char-card ${fallen ? 'gone-dark' : ''}`} aria-label={`Stack for ${s.name || 'a survivor'}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="ritual m-0 text-[1.3rem]">{s.name.trim() || 'Unnamed'}</h3>
+        <h3 className={`ritual m-0 text-[1.3rem] ${fallen ? 'fallen' : ''}`}>{s.name.trim() || 'Unnamed'}</h3>
         <p className="m-0 text-[0.8rem] font-semibold text-[var(--text-secondary)]">
-          {s.hopeDie ? 'Hope die lit' : 'No hope die yet'}
+          {fallen ? 'Gone dark — they fall' : s.hopeDie ? 'Hope die lit' : 'No hope die yet'}
         </p>
       </div>
 
@@ -104,7 +122,7 @@ function SurvivorStack({
         })}
       </div>
 
-      {canLiveMoment && (
+      {canLiveMoment && mine && !fallen && (
         <div className="mt-3">
           {!confirmMoment ? (
             <button type="button" className="btn-text" onClick={() => setConfirmMoment(true)}>
