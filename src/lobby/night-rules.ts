@@ -60,9 +60,18 @@ export function resolveNightHostAction(
     }
 
     case 'conflict/rerollOnes': {
+      // burning a card is spoken from its own seat — a guest may not spend
+      // another survivor's trait to buy its re-throw
+      if (a.actorId !== senderToken) return null
       if (!wire.light) return a
       return { type: 'night/scripted', action: a, light: wire.light }
     }
+
+    case 'moment/live':
+    case 'laststand/fall':
+      // living a moment and falling in the last stand name the seat that
+      // burns or dies — both belong to that seat's device alone
+      return a.actorId === senderToken ? a : null
 
     default:
       return a

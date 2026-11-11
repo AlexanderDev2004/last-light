@@ -159,3 +159,22 @@ describe('carried dice become scripted throws', () => {
     expect(resolveNightHostAction(room(), 's1', wire('s1', { type: 'laststand/fall', actorId: 's1' }))).not.toBeNull()
   })
 })
+
+describe('a card burns on its own seat, a seat falls by its own word', () => {
+  it('refuses a re-throw bought with another seat\'s card', () => {
+    expect(
+      resolveNightHostAction(room(), 's1', wire('s1', { type: 'conflict/rerollOnes', actorId: 's2' }, { light: [1, 1] })),
+    ).toBeNull()
+    expect(
+      resolveNightHostAction(room(), 's1', wire('s1', { type: 'conflict/rerollOnes', actorId: 's2' })),
+    ).toBeNull()
+  })
+
+  it('refuses a moment lived on another seat', () => {
+    expect(resolveNightHostAction(room(), 's1', wire('s1', { type: 'moment/live', actorId: 's2' }))).toBeNull()
+  })
+
+  it('refuses a fall spoken into another seat', () => {
+    expect(resolveNightHostAction(room(), 's1', wire('s1', { type: 'laststand/fall', actorId: 's2' }))).toBeNull()
+  })
+})
