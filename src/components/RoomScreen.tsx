@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { LobbyState } from '../lobby/lobby'
-import { isAdmin, me } from '../lobby/lobby'
+import { gatherBlocker, isAdmin, me } from '../lobby/lobby'
 import { MAX_MEMBERS, MIN_SURVIVORS } from '../game/types'
 
 function inviteUrl(code: string): string {
@@ -14,9 +14,9 @@ function inviteUrl(code: string): string {
 /**
  * A room as it stands before the night: who is seated, who keeps it, and the
  * code that lets others in. The admin removes members and hands out the
- * keeper's seat; anyone may raise their hand for it. Ready-up and the start
- * of the night arrive with the ready gate; until then the admin can move
- * everyone to the gathering.
+ * keeper's seat; anyone may raise their hand for it. The night begins only
+ * when exactly one keeper sits, 3–5 survivors surround them, and every seat
+ * is ready.
  */
 export default function RoomScreen({
   state,
@@ -26,6 +26,7 @@ export default function RoomScreen({
   onKick,
   onAppointGm,
   onToggleGmInterest,
+  onToggleReady,
 }: {
   state: LobbyState
   onRename: (name: string) => void
@@ -34,10 +35,12 @@ export default function RoomScreen({
   onKick: (id: string) => void
   onAppointGm: (gmMemberId: string | null) => void
   onToggleGmInterest: () => void
+  onToggleReady: () => void
 }) {
   const room = state.room!
   const self = me(state)
   const admin = isAdmin(state)
+  const blocker = gatherBlocker(room)
   const [copied, setCopied] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
   const copyTimer = useRef<number | undefined>(undefined)
@@ -176,6 +179,7 @@ export default function RoomScreen({
                     kick
                   </button>
                 )}
+                {m.ready && <span className="label m-0 text-[var(--flame)]">ready</span>}
                 {m.role === 'admin' && <span className="label m-0 text-[var(--text-primary)]">admin</span>}
                 {m.isGm && <span className="label m-0 text-[var(--flame)]">keeper</span>}
                 {m.wantsGm && !m.isGm && <span className="label m-0">wants the seat</span>}
@@ -201,17 +205,30 @@ export default function RoomScreen({
         </p>
       </section>
 
+      {room.nightStarted && (
+        <p className="notice mt-10" role="status">
+          The night is being told — the table has moved to the gathering. Ready is frozen until it ends.
+        </p>
+      )}
+
       <div className="mt-10 flex flex-wrap items-center gap-4" style={{ maxWidth: '44rem' }}>
         <button
           type="button"
-          className="btn"
-          disabled
-          title="The ready gate arrives in a later update — everyone will ready up before the night begins"
+          className={`btn ${self?.ready ? 'btn-primary' : ''}`}
+          disabled={room.nightStarted}
+          title={room.nightStarted ? 'The night is being told — ready is frozen' : undefined}
+          onClick={onToggleReady}
         >
           {self?.ready ? 'Unready' : 'Ready'}
         </button>
         {admin && (
-          <button type="button" className="btn btn-primary" onClick={onGather}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={blocker !== null}
+            title={blocker ?? 'Gather the table and write the cards'}
+            onClick={onGather}
+          >
             Move to the gathering
           </button>
         )}
@@ -219,10 +236,17 @@ export default function RoomScreen({
           Leave the room
         </button>
       </div>
+      {blocker && (
+        <p className="mt-3 mb-0 text-[0.8rem] leading-5 text-[var(--text-muted)]" role="status">
+          {blocker}
+        </p>
+      )}
       <p className="mt-3 mb-0 text-[0.8rem] leading-5 text-[var(--text-muted)]" style={{ maxWidth: '44rem' }}>
-        {admin
-          ? '“Move to the gathering” opens the character stacks on this screen — it stands in until the ready gate takes over.'
-          : 'Waiting for the admin to move the table to the gathering.'}
+        {blocker
+          ? 'Ready up, seat the keeper, and wait for every seat — then the admin moves the table to the gathering.'
+          : admin
+            ? '“Move to the gathering” opens the character stacks — the cards are written before the candles are lit.'
+            : 'The admin moves the table to the gathering when everything above is met.'}
       </p>
     </div>
   )

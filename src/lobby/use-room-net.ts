@@ -386,5 +386,13 @@ export function useRoomNet(lobby: LobbyState, dispatch: (a: LobbyAction) => void
     if (roleRef.current === 'guest') netRef.current?.sendAction({ kind: 'toggleGmInterest', token: meId })
   }
 
-  return { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest }
+  /** The local user toggles their readiness; guests carry it to the host. */
+  function toggleReady() {
+    const meId = lobby.meId
+    if (!meId || lobbyRef.current.room?.nightStarted) return
+    dispatch({ type: 'lobby/toggleReady' })
+    if (roleRef.current === 'guest') netRef.current?.sendAction({ kind: 'toggleReady', token: meId })
+  }
+
+  return { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady }
 }

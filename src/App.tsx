@@ -62,7 +62,7 @@ export default function App() {
   // persist across the scene boundary — a candle that dies mid-scene is one
   // the table watches go out, not one that silently re-renders
   const [darkenOpen, setDarkenOpen] = useState(false)
-  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest } = useRoomNet(lobby, lobbyDispatch)
+  const { renameSelf, leaveRoom, kickMember, appointGm, toggleGmInterest, toggleReady } = useRoomNet(lobby, lobbyDispatch)
 
   // The candle is the UI: the whole page darkens with every candle that dies,
   // from the studio black of the gathering down to the Last Stand's floor.
@@ -84,11 +84,13 @@ export default function App() {
   }, [state])
 
   // Both restart paths — the top bar and the epilogue — end the night here,
-  // clear any room, and return to the title so the lobby flow runs again.
+  // reopen the room with ready reset, and return to the title so the lobby
+  // flow runs again.
   function beginNewNight() {
     if (!window.confirm('Begin a new night? This night — its truths, its dead, its record — ends now.')) return
     dispatch({ type: 'night/reset' })
-    lobbyDispatch({ type: 'lobby/leave' })
+    // the night is over: the room opens again with ready reset for every seat
+    lobbyDispatch({ type: 'lobby/nightEnded' })
     setScreen('title')
   }
 
@@ -179,6 +181,7 @@ export default function App() {
               onKick={kickMember}
               onAppointGm={appointGm}
               onToggleGmInterest={toggleGmInterest}
+              onToggleReady={toggleReady}
             />
           )
         ) : state.phase === 'gathering' ? (
