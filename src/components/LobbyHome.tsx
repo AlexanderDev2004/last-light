@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { LobbyAction, LobbyState } from '../lobby/lobby'
+import { joinBlocker, type LobbyAction, type LobbyState } from '../lobby/lobby'
+import RoomRoster from './RoomRoster'
 
 /** Reads an invite link's room code (`?join=CODE`) out of the URL, once. */
 function inviteCodeFromUrl(): string {
@@ -40,6 +41,26 @@ export default function LobbyHome({
   useEffect(() => {
     if (inviteCodeFromUrl()) clearInviteFromUrl()
   }, [])
+
+  // A complete code is a room worth looking at: the host answers every peer
+  // that asks, so who is already seated shows up here before Join is pressed.
+  // Half a code is not a room yet — typing on ends the watching, and so does
+  // leaving the screen.
+  const watchedCode = /^[A-Z0-9]{6}$/.test(code) ? code : ''
+  useEffect(() => {
+    if (!watchedCode) {
+      dispatch({ type: 'lobby/peekEnd' })
+      return
+    }
+    const t = window.setTimeout(() => dispatch({ type: 'lobby/peek', code: watchedCode }), 400)
+    return () => {
+      window.clearTimeout(t)
+      dispatch({ type: 'lobby/peekEnd' })
+    }
+  }, [watchedCode, dispatch])
+
+  const watching = watchedCode !== '' && state.peek?.code === watchedCode
+  const blocker = watching ? joinBlocker(state.peek?.room ?? null) : null
 
   return (
     <div className="wrap rise" style={{ paddingTop: 'clamp(2rem, 6vh, 4rem)', paddingBottom: '5rem' }}>
@@ -163,10 +184,16 @@ export default function LobbyHome({
                   autoComplete="off"
                 />
               </div>
-              <button type="submit" className="btn btn-quiet">
+              <button type="submit" className="btn btn-quiet" disabled={blocker !== null}>
                 Join
               </button>
             </form>
+            {watching && (
+              <div className="mt-5 border-t border-[var(--line)] pt-4">
+                <RoomRoster room={state.peek?.room ?? null} />
+              </div>
+            )}
+            {blocker && <p className="notice mt-4">{blocker}</p>}
             {state.notice && (
               <p className="notice mt-4" role="status">
                 {state.notice}

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_MEMBERS } from '../game/types'
-import { gatherBlocker, gatherRequirements, generateCode, initialLobby, isAdmin, me, reducer } from './lobby'
+import {
+  gatherBlocker,
+  gatherRequirements,
+  generateCode,
+  initialLobby,
+  isAdmin,
+  joinBlocker,
+  me,
+  reducer,
+} from './lobby'
 
 describe('room codes', () => {
   it('uses six unambiguous characters', () => {
@@ -398,5 +407,82 @@ describe('admin powers', () => {
     expect(s.stage).toBe('home')
     expect(s.room).toBeNull()
     expect(s.notice).toContain('removed from the room')
+  })
+})
+
+describe('watching a room before knocking', () => {
+  function hostedRoom() {
+    const s = reducer(initialLobby(), {
+      type: 'lobby/create',
+      roomName: 'The hill',
+      adminName: 'Mara',
+      visibility: 'private',
+    })
+    if (!s.room) throw new Error('the room was not created')
+    return s.room
+  }
+
+  function watching(code = 'fdx5gx') {
+    return reducer(initialLobby(), { type: 'lobby/peek', code })
+  }
+
+  it('records the room the wire answers with, without knocking', () => {
+    const room = hostedRoom()
+    const s = reducer(watching(), { type: 'lobby/peekState', room })
+    expect(s.stage).toBe('home')
+    expect(s.pendingJoin).toBeNull()
+    expect(s.peek).toEqual({ code: 'FDX5GX', room })
+  })
+
+  it('ignores a snapshot when nothing is being watched', () => {
+    const s = reducer(initialLobby(), { type: 'lobby/peekState', room: hostedRoom() })
+    expect(s.peek).toBeNull()
+  })
+
+  it('stops watching once the join is attempted — the knock takes over', () => {
+    const room = hostedRoom()
+    const seen = reducer(watching('FDX5GX'), { type: 'lobby/peekState', room })
+    const s = reducer(seen, { type: 'lobby/joinAttempt', code: 'FDX5GX', name: 'Bo' })
+    expect(s.peek).toBeNull()
+    expect(s.stage).toBe('joining')
+    expect(s.pendingJoin).toEqual({ code: 'FDX5GX', name: 'Bo' })
+  })
+
+  it('stops watching when the screen closes', () => {
+    const s = reducer(watching(), { type: 'lobby/peekEnd' })
+    expect(s.peek).toBeNull()
+  })
+})
+
+describe('the door, said before the knock', () => {
+  function roomWith(count: number, nightStarted = false) {
+    let s = reducer(initialLobby(), {
+      type: 'lobby/create',
+      roomName: 'The hill',
+      adminName: 'Mara',
+      visibility: 'private',
+    })
+    for (let i = 1; i < count; i++) s = reducer(s, { type: 'lobby/mockJoin' })
+    if (!s.room) throw new Error('the room was not created')
+    return { ...s.room, nightStarted }
+  }
+
+  it('is open while seats remain and the night has not begun', () => {
+    expect(joinBlocker(roomWith(3))).toBeNull()
+  })
+
+  it('is shut once every seat is taken — the keeper counted', () => {
+    const room = roomWith(MAX_MEMBERS)
+    expect(room.members).toHaveLength(MAX_MEMBERS)
+    expect(joinBlocker(room)).toContain('Every seat is taken')
+    expect(joinBlocker(roomWith(MAX_MEMBERS - 1))).toBeNull()
+  })
+
+  it('is shut once the candles are lit, even with a seat free', () => {
+    expect(joinBlocker(roomWith(2, true))).toContain('already lit')
+  })
+
+  it('says nothing about a room that has not answered yet', () => {
+    expect(joinBlocker(null)).toBeNull()
   })
 })

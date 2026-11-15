@@ -43,7 +43,7 @@ export function useRoomNet(
   nightDispatch: (a: SyncAction) => void,
 ) {
   const netRef = useRef<RoomNet | null>(null)
-  const roleRef = useRef<'host' | 'guest' | null>(null)
+  const roleRef = useRef<'host' | 'guest' | 'peek' | null>(null)
   // Guests identify themselves with this token; the host keeps its admin id.
   const tokenRef = useRef(newId())
   /** peerId → member token, learned from the join each peer carried */
@@ -88,17 +88,22 @@ export function useRoomNet(
     pendingAdminLossRef.current = null
   }
 
-  // open the transport for this stage (host on room-entry, guest while knocking)
+  // open the transport for this stage (host on room-entry, guest while knocking,
+  // a peeker while the invite screen reads the room)
   useEffect(() => {
     const isHost = lobby.stage === 'room' && lobby.room !== null && lobby.meId === lobby.room.adminId
     const isGuest = lobby.stage === 'joining' && lobby.pendingJoin !== null
-    if ((!isHost && !isGuest) || netRef.current) return
+    // the invite screen watches the room before knocking: the host already
+    // answers every peer with a snapshot, so who is seated and how many seats
+    // remain are known before anyone types a name
+    const isPeek = lobby.stage === 'home' && lobby.peek !== null
+    if ((!isHost && !isGuest && !isPeek) || netRef.current) return
 
-    roleRef.current = isHost ? 'host' : 'guest'
+    roleRef.current = isHost ? 'host' : isPeek ? 'peek' : 'guest'
     lastHostSeenRef.current = Date.now()
     let active = true
 
-    void openRoomNet(lobby.pendingJoin?.code ?? lobby.room?.code ?? '').then((net) => {
+    void openRoomNet(lobby.pendingJoin?.code ?? lobby.room?.code ?? lobby.peek?.code ?? '').then((net) => {
       if (!active) {
         net?.close()
         return
@@ -195,12 +200,17 @@ export function useRoomNet(
       })
 
       net.onState((state, fromWireId) => {
-        if (roleRef.current !== 'guest') return
+        if (roleRef.current !== 'guest' && roleRef.current !== 'peek') return
         // only the peer our hello records hold the admin's token may
         // broadcast room state — anyone else is ignored, host-aliveness
         // included
         if (wireTokensRef.current.get(peerOf(fromWireId)) !== state.adminToken) return
         lastHostSeenRef.current = Date.now()
+        if (roleRef.current === 'peek') {
+          // a peeker never knocks: it only records the room as it stands
+          dispatch({ type: 'lobby/peekState', room: state.room })
+          return
+        }
         if (pendingAdminLossRef.current && pendingAdminLossRef.current !== state.room.adminId) {
           pendingAdminLossRef.current = null // the new host is broadcasting
         }
@@ -309,13 +319,14 @@ export function useRoomNet(
 
       // The heartbeat: the host says hello every few seconds; a guest who
       // stops hearing it knows the room died with the host's tab — no
-      // signaling timeout required.
+      // signaling timeout required. A peeker keeps no heartbeat: it is not
+      // knocking, and the room is not its to watch over.
       lastHostSeenRef.current = Date.now()
       if (roleRef.current === 'host') {
         heartbeatRef.current = window.setInterval(() => {
           net.sendAction({ kind: 'hello', token: lobbyRef.current.meId ?? '' })
         }, 5000)
-      } else {
+      } else if (roleRef.current === 'guest') {
         heartbeatRef.current = window.setInterval(() => {
           if (lobbyRef.current.stage === 'joining') {
             // still knocking — the room is legitimately not ours yet. Repeat
@@ -369,7 +380,7 @@ export function useRoomNet(
       teardown()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lobby.stage, knockRestart])
+  }, [lobby.stage, lobby.peek?.code, knockRestart])
 
   // knocking must give up when no room answers
   useEffect(() => {

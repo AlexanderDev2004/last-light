@@ -22,6 +22,10 @@ export interface LobbyState {
   meId: string | null
   /** while knocking: the code and name the join was attempted with */
   pendingJoin: { code: string; name: string } | null
+  /** while the invite screen is open: the room as the wire reports it, so the
+   *  roster and the free seats are known before anyone knocks. `room` stays
+   *  null until the host answers. */
+  peek: { code: string; room: Room | null } | null
   /** a one-line message under the join form — wrong code, room full, … */
   notice: string | null
   /** why the door refused us — full, or the night already begun — shown on
@@ -32,6 +36,9 @@ export interface LobbyState {
 export type LobbyAction =
   | { type: 'lobby/create'; roomName: string; adminName: string; visibility: 'private' | 'public' }
   | { type: 'lobby/joinAttempt'; code: string; name: string }
+  | { type: 'lobby/peek'; code: string }
+  | { type: 'lobby/peekState'; room: Room }
+  | { type: 'lobby/peekEnd' }
   | { type: 'lobby/joinFailed'; notice: string; reason?: 'full' | 'night-started' }
   | { type: 'lobby/dismissFailure' }
   | { type: 'lobby/nightStarted' }
@@ -55,7 +62,15 @@ export type LobbyAction =
   | { type: 'lobby/mockLeave' }
 
 export function initialLobby(): LobbyState {
-  return { stage: 'home', room: null, meId: null, pendingJoin: null, notice: null, failReason: null }
+  return {
+    stage: 'home',
+    room: null,
+    meId: null,
+    pendingJoin: null,
+    peek: null,
+    notice: null,
+    failReason: null,
+  }
 }
 
 /** Room codes: six characters, no I/L/O/0/1 — readable aloud and over chat. */
@@ -87,20 +102,37 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
         members: [admin],
         nightStarted: false,
       }
-      return { stage: 'room', room, meId: admin.id, pendingJoin: null, notice: null, failReason: null }
+      return { stage: 'room', room, meId: admin.id, pendingJoin: null, peek: null, notice: null, failReason: null }
     }
 
     case 'lobby/joinAttempt': {
       const code = action.code.trim().toUpperCase()
       if (!code) return { ...state, notice: 'Enter a room code first.' }
       // The transport takes over from here: it knocks on the room and either
-      // comes back with a snapshot (netState) or fails (joinFailed).
+      // comes back with a snapshot (netState) or fails (joinFailed). The knock
+      // replaces the peek — one connection, one purpose.
       return {
         ...state,
         stage: 'joining',
         pendingJoin: { code, name: action.name.trim() || 'A stranger' },
+        peek: null,
         notice: null,
       }
+    }
+
+    case 'lobby/peek': {
+      return { ...state, peek: { code: action.code.trim().toUpperCase(), room: null } }
+    }
+
+    case 'lobby/peekState': {
+      // only a screen that is watching may record what it sees
+      if (!state.peek) return state
+      return { ...state, peek: { ...state.peek, room: action.room } }
+    }
+
+    case 'lobby/peekEnd': {
+      if (!state.peek) return state
+      return { ...state, peek: null }
     }
 
     case 'lobby/joinFailed': {
@@ -121,7 +153,15 @@ export function reducer(state: LobbyState, action: LobbyAction): LobbyState {
     case 'lobby/netState': {
       const seated = action.room.members.some((m) => m.id === action.selfToken)
       if (!seated) return state // the hook turns this into a joinFailed
-      return { stage: 'room', room: action.room, meId: action.selfToken, pendingJoin: null, notice: null, failReason: null }
+      return {
+        stage: 'room',
+        room: action.room,
+        meId: action.selfToken,
+        pendingJoin: null,
+        peek: null,
+        notice: null,
+        failReason: null,
+      }
     }
 
     case 'lobby/peerJoin': {
@@ -366,4 +406,21 @@ export function gatherRequirements(room: Room): string[] {
 export function gatherBlocker(room: Room): string | null {
   const reasons = gatherRequirements(room)
   return reasons.length ? reasons.join(' · ') : null
+}
+
+/**
+ * Why this room can no longer take a player, or null while it still can. It
+ * is the same verdict the host's door enforces when the join lands, said
+ * before the knock — by the invite screen and the lobby's join form alike.
+ * `null` (no answer yet) is not a shut door; it is an unknown one.
+ */
+export function joinBlocker(room: Room | null): string | null {
+  if (!room) return null
+  if (room.nightStarted) {
+    return 'The candles are already lit and the story is being told. A room holds one night only — ask the keeper for the next one.'
+  }
+  if (room.members.length >= MAX_MEMBERS) {
+    return `Every seat is taken — all ${MAX_MEMBERS} seats, the keeper included. Ask the keeper to open a fresh room.`
+  }
+  return null
 }

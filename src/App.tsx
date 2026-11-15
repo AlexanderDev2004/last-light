@@ -200,7 +200,12 @@ export default function App() {
           lobby.stage === 'home' && lobby.failReason ? (
             <JoinRefused state={lobby} dispatch={lobbyDispatch} />
           ) : inviteCode && lobby.stage === 'home' ? (
-            <InviteJoin code={inviteCode} dispatch={lobbyDispatch} onBack={() => setScreen('title')} />
+            <InviteJoin
+              code={inviteCode}
+              room={lobby.peek?.room ?? null}
+              dispatch={lobbyDispatch}
+              onBack={() => setScreen('title')}
+            />
           ) : lobby.stage === 'home' ? (
             <LobbyHome
               state={lobby}

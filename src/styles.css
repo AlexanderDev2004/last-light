@@ -198,6 +198,11 @@
     border-color: var(--line);
   }
 
+  /* A filled button that cannot be pressed must not look like it still burns. */
+  .btn-primary:disabled {
+    background: var(--raised);
+  }
+
   /* The single filled action per view: the only filled button is one that
      burns. */
   .btn-primary {
